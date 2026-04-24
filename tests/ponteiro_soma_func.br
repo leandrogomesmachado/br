@@ -1,0 +1,22 @@
+// esperado: 150
+// Funcao que recebe ponteiro + tamanho (estilo 'slice') e soma elementos.
+funcao inteiro somar(inteiro *base, inteiro n) {
+    inteiro total = 0;
+    inteiro i = 0;
+    enquanto (i < n) {
+        total = total + base[i];
+        i = i + 1;
+    }
+    retornar total;
+}
+
+funcao inteiro principal() {
+    inteiro v[5];
+    v[0] = 10;
+    v[1] = 20;
+    v[2] = 30;
+    v[3] = 40;
+    v[4] = 50;
+    // 10+20+30+40+50 = 150
+    retornar somar(&v[0], 5);
+}

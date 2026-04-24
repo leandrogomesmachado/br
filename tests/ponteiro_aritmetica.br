@@ -1,0 +1,15 @@
+// esperado: 30
+// Aritmetica de ponteiro em vetor: &v[0] + i == &v[i].
+// Le e escreve via 'p + i' com dereferencia explicita.
+funcao inteiro principal() {
+    inteiro v[5];
+    inteiro *p = &v[0];
+
+    *(p + 0) = 10;
+    *(p + 1) = 20;
+    *(p + 2) = 30;
+    *(p + 3) = 40;
+    *(p + 4) = 50;
+
+    retornar *(p + 2);
+}

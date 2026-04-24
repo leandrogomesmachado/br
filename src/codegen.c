@@ -69,13 +69,35 @@ static void gen_binop_arith(CG *g, const Expr *e)
      * op entre rax (rhs) e rcx (lhs). Como a maioria dos operadores x86
      * opera "dst = dst OP src", reorganizamos para (rcx OP rax) -> rcx e
      * movemos para rax. Para simplificar, fazemos o contrario: deixamos
-     * lhs em rax e rhs em rcx, e a operacao e' rax = rax OP rcx. */
+     * lhs em rax e rhs em rcx, e a operacao e' rax = rax OP rcx.
+     *
+     * Aritmetica de ponteiro: como todos os tipos escalares e ponteiros
+     * ocupam 8 bytes nesta versao, a escala e' sempre 8. Se exatamente
+     * um dos lados for ponteiro, multiplicamos o outro por 8 antes da
+     * soma/subtracao (shlq $3). O resolver ja bloqueou combinacoes
+     * invalidas (ptr + ptr, int - ptr etc.), entao aqui so emitimos. */
+    int lp = br_type_is_pointer(e->as.binop.lhs->eval_type);
+    int rp = br_type_is_pointer(e->as.binop.rhs->eval_type);
+
     gen_expr(g, e->as.binop.lhs);
     emit_push_rax(g);
     gen_expr(g, e->as.binop.rhs);
     /* rhs em rax; movemos para rcx, e recuperamos lhs em rax. */
     fprintf(g->out, "    movq    %%rax, %%rcx\n");
     emit_pop(g, "rax");
+
+    if ((e->as.binop.op == BINOP_ADD || e->as.binop.op == BINOP_SUB) && (lp ^ rp)) {
+        if (lp) {
+            /* lhs e' ponteiro (em rax); rhs inteiro (em rcx) -> escala rcx. */
+            fprintf(g->out, "    shlq    $3, %%rcx\n");
+        } else {
+            /* rhs e' ponteiro (em rcx); lhs inteiro (em rax) -> escala rax.
+             * Na pratica o resolver so aceita 'int + ptr' para ADD; para
+             * SUB, 'int - ptr' foi rejeitado, entao este ramo so e atingido
+             * pelo '+'. */
+            fprintf(g->out, "    shlq    $3, %%rax\n");
+        }
+    }
 
     switch (e->as.binop.op) {
         case BINOP_ADD: fprintf(g->out, "    addq    %%rcx, %%rax\n"); break;
@@ -97,6 +119,14 @@ static void gen_binop_arith(CG *g, const Expr *e)
 
 static void gen_binop_cmp(CG *g, const Expr *e)
 {
+    /* Para comparacoes de magnitude (<, <=, >, >=) entre ponteiros usamos
+     * comparacao unsigned, como manda o modelo de memoria: enderecos sao
+     * tratados como numeros nao-negativos e o sinal de 'cmpq' nao faz sentido
+     * quando dois ponteiros caem em lados opostos da fronteira de sinal.
+     * Para '==' e '!=', signed e unsigned sao equivalentes. */
+    int ptr_cmp = br_type_is_pointer(e->as.binop.lhs->eval_type) &&
+                  br_type_is_pointer(e->as.binop.rhs->eval_type);
+
     gen_expr(g, e->as.binop.lhs);
     emit_push_rax(g);
     gen_expr(g, e->as.binop.rhs);
@@ -108,10 +138,10 @@ static void gen_binop_cmp(CG *g, const Expr *e)
     switch (e->as.binop.op) {
         case BINOP_EQ: setcc = "sete";  break;
         case BINOP_NE: setcc = "setne"; break;
-        case BINOP_LT: setcc = "setl";  break;
-        case BINOP_LE: setcc = "setle"; break;
-        case BINOP_GT: setcc = "setg";  break;
-        case BINOP_GE: setcc = "setge"; break;
+        case BINOP_LT: setcc = ptr_cmp ? "setb"  : "setl";  break;
+        case BINOP_LE: setcc = ptr_cmp ? "setbe" : "setle"; break;
+        case BINOP_GT: setcc = ptr_cmp ? "seta"  : "setg";  break;
+        case BINOP_GE: setcc = ptr_cmp ? "setae" : "setge"; break;
         default: br_fatal("gen_binop_cmp: operador nao comparativo");
     }
     fprintf(g->out, "    %s    %%al\n", setcc);
@@ -288,10 +318,19 @@ static void gen_expr(CG *g, const Expr *e)
             fprintf(g->out, "    movq    %d(%%rbp), %%rax\n", e->as.var.rbp_offset);
             break;
         case EXPR_INDEX: {
-            /* Avalia o indice -> rax; endereco = rbp + base_offset + rax*8. */
-            gen_expr(g, e->as.index.index);
-            fprintf(g->out, "    movq    %d(%%rbp,%%rax,8), %%rax\n",
-                    e->as.index.base_offset);
+            if (e->as.index.via_pointer) {
+                /* p[i] para ponteiro: carrega p, soma i*8, dereferencia. */
+                gen_expr(g, e->as.index.index);
+                fprintf(g->out, "    shlq    $3, %%rax\n");
+                fprintf(g->out, "    addq    %d(%%rbp), %%rax\n",
+                        e->as.index.base_offset);
+                fprintf(g->out, "    movq    (%%rax), %%rax\n");
+            } else {
+                /* Vetor fixo: endereco = rbp + base_offset + rax*8. */
+                gen_expr(g, e->as.index.index);
+                fprintf(g->out, "    movq    %d(%%rbp,%%rax,8), %%rax\n",
+                        e->as.index.base_offset);
+            }
             break;
         }
         case EXPR_FIELD:
@@ -306,14 +345,22 @@ static void gen_expr(CG *g, const Expr *e)
                 fprintf(g->out, "    movq    %%rax, %d(%%rbp)\n",
                         tgt->as.var.rbp_offset);
             } else if (tgt->kind == EXPR_INDEX) {
-                /* v[i] = value: primeiro avalia 'value' e guarda na pilha,
-                 * depois calcula o endereco e faz o store. */
+                /* v[i] = value ou p[i] = value. Em ambos os casos:
+                 *   1. avalia 'value' e empilha;
+                 *   2. calcula o endereco do destino em %rdx;
+                 *   3. desempilha 'value' em %rax e faz o store. */
                 gen_expr(g, e->as.assign.value);
                 emit_push_rax(g);                          /* salva value */
                 gen_expr(g, tgt->as.index.index);          /* rax = i */
-                /* endereco do destino em %rdx */
-                fprintf(g->out, "    leaq    %d(%%rbp,%%rax,8), %%rdx\n",
-                        tgt->as.index.base_offset);
+                if (tgt->as.index.via_pointer) {
+                    fprintf(g->out, "    shlq    $3, %%rax\n");
+                    fprintf(g->out, "    addq    %d(%%rbp), %%rax\n",
+                            tgt->as.index.base_offset);
+                    fprintf(g->out, "    movq    %%rax, %%rdx\n");
+                } else {
+                    fprintf(g->out, "    leaq    %d(%%rbp,%%rax,8), %%rdx\n",
+                            tgt->as.index.base_offset);
+                }
                 emit_pop(g, "rax");                        /* rax = value */
                 fprintf(g->out, "    movq    %%rax, (%%rdx)\n");
             } else if (tgt->kind == EXPR_FIELD) {
@@ -351,8 +398,14 @@ static void gen_expr(CG *g, const Expr *e)
                             op->as.field.rbp_offset);
                 } else if (op->kind == EXPR_INDEX) {
                     gen_expr(g, op->as.index.index);       /* rax = i */
-                    fprintf(g->out, "    leaq    %d(%%rbp,%%rax,8), %%rax\n",
-                            op->as.index.base_offset);
+                    if (op->as.index.via_pointer) {
+                        fprintf(g->out, "    shlq    $3, %%rax\n");
+                        fprintf(g->out, "    addq    %d(%%rbp), %%rax\n",
+                                op->as.index.base_offset);
+                    } else {
+                        fprintf(g->out, "    leaq    %d(%%rbp,%%rax,8), %%rax\n",
+                                op->as.index.base_offset);
+                    }
                 } else if (op->kind == EXPR_UNARY && op->as.unary.op == UNOP_DEREF) {
                     /* &*p == p: emite apenas o ponteiro, sem load nem store. */
                     gen_expr(g, op->as.unary.operand);

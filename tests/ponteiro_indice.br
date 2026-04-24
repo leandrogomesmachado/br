@@ -1,0 +1,15 @@
+// esperado: 42
+// Indexacao com '[]' em uma variavel do tipo ponteiro.
+// Semanticamente igual a *(p + i), mas com sintaxe de vetor.
+funcao inteiro principal() {
+    inteiro v[4];
+    inteiro *p = &v[0];
+
+    p[0] = 10;
+    p[1] = 12;
+    p[2] = 20;
+    p[3] = 0;
+
+    // p[0] + p[1] + p[2] = 10 + 12 + 20 = 42
+    retornar p[0] + p[1] + p[2];
+}

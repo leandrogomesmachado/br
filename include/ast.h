@@ -72,6 +72,11 @@ struct Expr {
     ExprKind kind;
     int      line;
     int      col;
+    /* Tipo resultante da avaliacao da expressao. Preenchido pelo resolver
+     * (valor default 'inteiro' escalar quando alocado via xcalloc). Usado
+     * pelo codegen para decidir, por exemplo, se '+' deve aplicar escala
+     * de ponteiro. */
+    BrType   eval_type;
     union {
         long long int_lit;
 
@@ -89,8 +94,11 @@ struct Expr {
         struct {
             char *name;          /* alocado */
             Expr *index;
-            int   base_offset;   /* offset de v[0] (preenchido pelo resolver) */
-            int   array_len;     /* numero de elementos (preenchido pelo resolver) */
+            int   base_offset;   /* offset de v[0] (vetor) OU slot do proprio
+                                  * ponteiro (via_pointer == 1) */
+            int   array_len;     /* numero de elementos (0 se via_pointer) */
+            int   via_pointer;   /* 0 = vetor fixo; 1 = indexacao em ponteiro
+                                  * (acucar para '*(p + indice)') */
         } index;
 
         struct {

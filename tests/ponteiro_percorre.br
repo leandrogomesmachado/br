@@ -1,0 +1,20 @@
+// esperado: 15
+// Percorre um vetor avancando o ponteiro com 'p = p + 1'.
+// Soma 1+2+3+4+5 = 15 sem usar indice numerico diretamente.
+funcao inteiro principal() {
+    inteiro v[5];
+    v[0] = 1;
+    v[1] = 2;
+    v[2] = 3;
+    v[3] = 4;
+    v[4] = 5;
+
+    inteiro *p = &v[0];
+    inteiro *fim = &v[5];           // um-alem-do-ultimo
+    inteiro soma = 0;
+    enquanto (p < fim) {
+        soma = soma + *p;
+        p = p + 1;
+    }
+    retornar soma;
+}

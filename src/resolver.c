@@ -9,8 +9,9 @@
  * --------------------------------------------------------------------- */
 
 typedef struct {
-    const char *name;   /* nao-dono (aponta para FuncDecl::name) */
+    const char *name;        /* nao-dono (aponta para FuncDecl::name) */
     size_t      nparams;
+    BrType      return_type; /* tipo de retorno, para propagacao em EXPR_CALL */
 } FuncSig;
 
 typedef struct {
@@ -41,11 +42,12 @@ static const FuncSig *ftab_find(const FuncTable *t, const char *name)
     return NULL;
 }
 
-static void ftab_add(FuncTable *t, const char *name, size_t nparams)
+static void ftab_add(FuncTable *t, const char *name, size_t nparams, BrType rt)
 {
     t->items = (FuncSig *)br_xrealloc(t->items, (t->len + 1) * sizeof(FuncSig));
-    t->items[t->len].name    = name;
-    t->items[t->len].nparams = nparams;
+    t->items[t->len].name        = name;
+    t->items[t->len].nparams     = nparams;
+    t->items[t->len].return_type = rt;
     t->len++;
 }
 
@@ -59,6 +61,9 @@ typedef struct {
     int               depth;       /* nivel de bloco em que foi declarado */
     int               array_len;   /* 0 = escalar; >= 1 = vetor fixo */
     const StructDecl *struct_decl; /* NULL = nao e variavel de estrutura */
+    BrType            type;        /* tipo declarado (escalar ou elemento de
+                                    * vetor); irrelevante p/ struct (que usa
+                                    * struct_decl). */
 } ScopeEntry;
 
 typedef struct {
@@ -118,8 +123,10 @@ static const ScopeEntry *scope_lookup_entry(const Scope *s, const char *name)
  *   - escalar:   array_len == 0 && sd == NULL  (1 slot)
  *   - vetor:     array_len >  0 && sd == NULL  (array_len slots)
  *   - estrutura: array_len == 0 && sd != NULL  (sd->nfields slots)
+ * O parametro 'type' representa o tipo declarado (escalar ou elemento, para
+ * vetores); e ignorado para declaracoes de estrutura.
  * Retorna o offset da base (v[0] para vetores, campo[0] para estruturas). */
-static int scope_declare(Scope *s, const char *name,
+static int scope_declare(Scope *s, const char *name, BrType type,
                          int array_len, const StructDecl *sd,
                          const char *path, int line, int col)
 {
@@ -153,6 +160,7 @@ static int scope_declare(Scope *s, const char *name,
     s->items[s->len].depth       = s->depth;
     s->items[s->len].array_len   = array_len;
     s->items[s->len].struct_decl = sd;
+    s->items[s->len].type        = type;
     s->len++;
     return s->cur_offset;
 }
@@ -209,7 +217,8 @@ static void resolve_stmt(RCtx *c, Stmt *s);
 
 /* Nomes das funcoes embutidas (builtins) que o codegen intercepta.
  * Sao registradas no FuncTable para que chamadas a elas passem pelas
- * validacoes normais (existencia e aridade). */
+ * validacoes normais (existencia e aridade). Todas retornam 'inteiro'
+ * (zero em caso de sucesso, consistente com o codegen atual). */
 static const struct {
     const char *name;
     size_t      nparams;
@@ -229,6 +238,9 @@ static int is_builtin(const char *name)
     return 0;
 }
 
+/* Tipo utilitario curto usado em varios lugares. */
+static BrType tY_int(void) { return br_type_scalar(BR_BASE_INTEIRO); }
+
 static void resolve_expr(RCtx *c, Expr *e)
 {
     if (!e) {
@@ -236,6 +248,7 @@ static void resolve_expr(RCtx *c, Expr *e)
     }
     switch (e->kind) {
         case EXPR_INT_LIT:
+            e->eval_type = tY_int();
             break;
         case EXPR_STR_LIT:
             /* Literais de string so sao aceitaveis como argumento direto
@@ -260,6 +273,7 @@ static void resolve_expr(RCtx *c, Expr *e)
                             e->as.var.name, e->as.var.name);
             }
             e->as.var.rbp_offset = se->offset;
+            e->eval_type = se->type;
             break;
         }
         case EXPR_INDEX: {
@@ -268,14 +282,26 @@ static void resolve_expr(RCtx *c, Expr *e)
                 br_fatal_at(c->path, e->line, e->col,
                             "variavel '%s' nao declarada", e->as.index.name);
             }
-            if (se->array_len <= 0) {
+            resolve_expr(c, e->as.index.index);
+            if (se->array_len > 0) {
+                /* Vetor fixo classico. */
+                e->as.index.base_offset = se->offset;
+                e->as.index.array_len   = se->array_len;
+                e->as.index.via_pointer = 0;
+                e->eval_type = se->type;
+            } else if (br_type_is_pointer(se->type)) {
+                /* p[i] == *(p + i) para ponteiros. O offset armazenado aponta
+                 * para o slot do proprio ponteiro no frame; o codegen fara
+                 * 'load p; add i*8; deref'. */
+                e->as.index.base_offset = se->offset;
+                e->as.index.array_len   = 0;
+                e->as.index.via_pointer = 1;
+                e->eval_type = br_type_pointer(se->type.base, se->type.ptr_depth - 1);
+            } else {
                 br_fatal_at(c->path, e->line, e->col,
-                            "'%s' nao e um vetor; indexacao '[]' invalida",
+                            "'%s' nao e um vetor nem um ponteiro; indexacao '[]' invalida",
                             e->as.index.name);
             }
-            e->as.index.base_offset = se->offset;
-            e->as.index.array_len   = se->array_len;
-            resolve_expr(c, e->as.index.index);
             break;
         }
         case EXPR_FIELD: {
@@ -304,25 +330,67 @@ static void resolve_expr(RCtx *c, Expr *e)
                             sd->name, e->as.field.field_name);
             }
             e->as.field.rbp_offset = se->offset + fd->byte_offset;
+            e->eval_type = fd->type;
             break;
         }
         case EXPR_ASSIGN:
-            /* O target pode ser EXPR_VAR (escalar) ou EXPR_INDEX: em ambos
-             * os casos, resolve_expr aplica as mesmas verificacoes que ja
-             * faria em contexto de leitura. */
             resolve_expr(c, e->as.assign.target);
             resolve_expr(c, e->as.assign.value);
+            e->eval_type = e->as.assign.target->eval_type;
             break;
-        case EXPR_BINOP:
+        case EXPR_BINOP: {
             resolve_expr(c, e->as.binop.lhs);
             resolve_expr(c, e->as.binop.rhs);
+            BrType lt = e->as.binop.lhs->eval_type;
+            BrType rt = e->as.binop.rhs->eval_type;
+            int lp = br_type_is_pointer(lt);
+            int rp = br_type_is_pointer(rt);
+            switch (e->as.binop.op) {
+                case BINOP_ADD:
+                    if (lp && rp) {
+                        br_fatal_at(c->path, e->line, e->col,
+                                    "nao e permitido somar dois ponteiros");
+                    }
+                    e->eval_type = lp ? lt : (rp ? rt : tY_int());
+                    break;
+                case BINOP_SUB:
+                    if (lp && rp) {
+                        /* Subtracao entre ponteiros (ptrdiff) ainda nao
+                         * suportada nesta fase; reservada para G.2/G.4. */
+                        br_fatal_at(c->path, e->line, e->col,
+                                    "subtracao entre dois ponteiros ainda nao suportada");
+                    }
+                    if (rp) {
+                        br_fatal_at(c->path, e->line, e->col,
+                                    "operando a direita de '-' nao pode ser ponteiro quando o esquerdo nao e");
+                    }
+                    e->eval_type = lp ? lt : tY_int();
+                    break;
+                case BINOP_EQ: case BINOP_NE:
+                case BINOP_LT: case BINOP_LE:
+                case BINOP_GT: case BINOP_GE:
+                    /* Comparacoes sao validas entre dois inteiros ou entre
+                     * dois ponteiros (como em 'p < fim'). Misturar os dois
+                     * tipos e' erro porque nesta versao ainda nao ha coercao
+                     * automatica nem literal nulo tipado. */
+                    if (lp != rp) {
+                        br_fatal_at(c->path, e->line, e->col,
+                                    "comparacao mistura inteiro e ponteiro; ambos os lados devem ter o mesmo tipo");
+                    }
+                    e->eval_type = tY_int();
+                    break;
+                default:
+                    if (lp || rp) {
+                        br_fatal_at(c->path, e->line, e->col,
+                                    "operador binario nao suportado em ponteiros");
+                    }
+                    e->eval_type = tY_int();
+                    break;
+            }
             break;
+        }
         case EXPR_UNARY:
             if (e->as.unary.op == UNOP_ADDR) {
-                /* &operando: o operando precisa ser um lvalue. Como o parser
-                 * ja bloqueia coisas que nunca sao lvalue (literais, chamadas
-                 * etc.) antes de '=', aqui reforcamos a regra explicitamente
-                 * para o caso do '&' nao assignment-context. */
                 const Expr *op = e->as.unary.operand;
                 int ok = (op->kind == EXPR_VAR || op->kind == EXPR_INDEX ||
                           op->kind == EXPR_FIELD ||
@@ -333,6 +401,27 @@ static void resolve_expr(RCtx *c, Expr *e)
                 }
             }
             resolve_expr(c, e->as.unary.operand);
+            switch (e->as.unary.op) {
+                case UNOP_NEG:
+                case UNOP_NOT:
+                    e->eval_type = tY_int();
+                    break;
+                case UNOP_ADDR: {
+                    BrType t = e->as.unary.operand->eval_type;
+                    e->eval_type = br_type_pointer(t.base, t.ptr_depth + 1);
+                    break;
+                }
+                case UNOP_DEREF: {
+                    BrType t = e->as.unary.operand->eval_type;
+                    if (!br_type_is_pointer(t)) {
+                        /* Mensagem clara em vez de bug no codegen. */
+                        br_fatal_at(c->path, e->line, e->col,
+                                    "operador '*' requer operando do tipo ponteiro");
+                    }
+                    e->eval_type = br_type_pointer(t.base, t.ptr_depth - 1);
+                    break;
+                }
+            }
             break;
         case EXPR_CALL: {
             const FuncSig *sig = ftab_find(c->ftab, e->as.call.name);
@@ -346,21 +435,19 @@ static void resolve_expr(RCtx *c, Expr *e)
                             "funcao '%s' espera %zu argumento(s), %zu fornecido(s)",
                             e->as.call.name, sig->nparams, e->as.call.nargs);
             }
-            /* Regra especial: 'escrever_texto' exige que seu unico argumento
-             * seja um literal de string sintaticamente direto. Nao chamamos
-             * resolve_expr nesse argumento porque EXPR_STR_LIT em contexto
-             * generico e' erro (veja case EXPR_STR_LIT acima). */
             if (strcmp(e->as.call.name, "escrever_texto") == 0) {
                 if (e->as.call.nargs != 1 ||
                     e->as.call.args[0]->kind != EXPR_STR_LIT) {
                     br_fatal_at(c->path, e->line, e->col,
                                 "'escrever_texto' requer um literal de string como argumento");
                 }
+                e->eval_type = sig->return_type;
                 break;
             }
             for (size_t i = 0; i < e->as.call.nargs; i++) {
                 resolve_expr(c, e->as.call.args[i]);
             }
+            e->eval_type = sig->return_type;
             break;
         }
     }
@@ -386,6 +473,7 @@ static void resolve_stmt(RCtx *c, Stmt *s)
              * para impedir 'inteiro x = x;'. */
             resolve_expr(c, s->as.var_decl.init);
             int off = scope_declare(c->scope, s->as.var_decl.name,
+                                    s->as.var_decl.type,
                                     s->as.var_decl.array_len, NULL,
                                     c->path, s->line, s->col);
             s->as.var_decl.rbp_offset = off;
@@ -399,6 +487,7 @@ static void resolve_stmt(RCtx *c, Stmt *s)
                             s->as.struct_var_decl.struct_name);
             }
             int off = scope_declare(c->scope, s->as.struct_var_decl.var_name,
+                                    tY_int(),           /* tipo nao usado p/ struct */
                                     0, sd, c->path, s->line, s->col);
             s->as.struct_var_decl.rbp_offset = off;
             s->as.struct_var_decl.num_slots  = (int)sd->nfields;
@@ -443,7 +532,8 @@ static void resolve_func(const FuncTable *ftab, const StructTable *stab,
     /* Declara parametros no escopo de nivel 1 (acima do corpo). */
     scope_push_block(&sc);
     for (size_t i = 0; i < f->nparams; i++) {
-        int off = scope_declare(&sc, f->params[i].name, 0, NULL, path,
+        int off = scope_declare(&sc, f->params[i].name, f->params[i].type,
+                                0, NULL, path,
                                 f->params[i].line, f->params[i].col);
         f->params[i].rbp_offset = off;
     }
@@ -495,8 +585,9 @@ void resolver_run(Program *prog, const char *path)
 
     /* 1a passagem: registrar builtins primeiro, depois popular a tabela com
      * as funcoes declaradas pelo programa (permitindo chamadas mutuas). */
+    BrType rt_int = br_type_scalar(BR_BASE_INTEIRO);
     for (size_t i = 0; i < sizeof(BUILTINS) / sizeof(BUILTINS[0]); i++) {
-        ftab_add(&ftab, BUILTINS[i].name, BUILTINS[i].nparams);
+        ftab_add(&ftab, BUILTINS[i].name, BUILTINS[i].nparams, rt_int);
     }
     for (size_t i = 0; i < prog->nfuncs; i++) {
         FuncDecl *f = prog->funcs[i];
@@ -508,7 +599,7 @@ void resolver_run(Program *prog, const char *path)
             br_fatal_at(path, f->line, f->col,
                         "funcao '%s' redefinida", f->name);
         }
-        ftab_add(&ftab, f->name, f->nparams);
+        ftab_add(&ftab, f->name, f->nparams, f->return_type);
     }
 
     /* Checa entrada 'principal'. */
