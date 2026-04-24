@@ -6,7 +6,7 @@ Este repositorio contem o compilador oficial da linguagem, chamado `brc`. A vers
 
 ## Status
 
-A versao 0.0.1a e funcional e suporta um subconjunto suficiente para programas nao triviais: multiplas funcoes, recursao, variaveis locais, aritmetica inteira com precedencia, operadores de comparacao, operadores logicos com curto-circuito, controle de fluxo com `se`/`senao` e `enquanto`, passagem de ate seis parametros por registrador seguindo a ABI System V AMD64, tipos primitivos `inteiro` e `caractere`, literais de caractere (`'A'`, `'\n'`) e de cadeia de caracteres (`"texto"`) e funcoes embutidas de saida padrao que escrevem diretamente no descritor de arquivo 1 via syscall. Um programa nesta versao ja consegue, por exemplo, executar FizzBuzz imprimindo o resultado em stdout.
+A versao 0.0.1a e funcional e suporta um subconjunto suficiente para programas nao triviais: multiplas funcoes, recursao, variaveis locais, vetores fixos com indexacao, estruturas com acesso por campo, aritmetica inteira com precedencia, operadores de comparacao, operadores logicos com curto-circuito, controle de fluxo com `se`/`senao`, `enquanto` e `para`, passagem de ate seis parametros por registrador seguindo a ABI System V AMD64, tipos primitivos `inteiro` e `caractere`, literais de caractere (`'A'`, `'\n'`) e de cadeia de caracteres (`"texto"`) e funcoes embutidas de saida padrao que escrevem diretamente no descritor de arquivo 1 via syscall. Um programa nesta versao ja consegue, por exemplo, executar FizzBuzz imprimindo o resultado em stdout, ou construir um retangulo em uma `estrutura` e operar sobre seus campos.
 
 Todos os testes automatizados passam sem vazamentos de memoria verificados pelo Valgrind, e o compilador e compilado sem nenhum aviso pelo GCC com as flags `-Wall -Wextra -Wpedantic -Werror`.
 
@@ -71,11 +71,17 @@ Ao executar, esse programa imprime `ola, mundo!`, uma nova linha, e em seguida `
 
 ## Resumo da sintaxe suportada
 
-As palavras-chave atuais sao `funcao`, `inteiro`, `caractere`, `vazio`, `se`, `senao`, `enquanto`, `retornar` e `estrutura`. Apenas `estrutura` permanece reservada para uma versao futura; todas as demais ja tem implementacao completa nesta versao.
+As palavras-chave atuais sao `funcao`, `inteiro`, `caractere`, `vazio`, `se`, `senao`, `enquanto`, `para`, `retornar` e `estrutura`, todas com implementacao completa.
 
 O ponto de entrada de todo programa e uma funcao chamada `principal`, que retorna `inteiro` e nao recebe parametros. O valor retornado por ela e o codigo de saida do processo.
 
 Os tipos primitivos suportados sao `inteiro` (inteiro com sinal de 64 bits), `caractere` (um byte representado em um slot de 8 bytes para simplicidade de codegen) e `vazio` (usado apenas em tipos de retorno). Os operadores aritmeticos sao `+`, `-`, `*`, `/`, `%`; os de comparacao sao `==`, `!=`, `<`, `<=`, `>`, `>=`; os logicos sao `&&`, `||`, `!`, todos com curto-circuito para os binarios. Literais de caractere seguem a forma `'c'` e aceitam as sequencias de escape `\n`, `\t`, `\r`, `\0`, `\\`, `\'` e `\"`; literais de string seguem a forma `"..."` com as mesmas sequencias.
+
+Vetores fixos sao declarados com `tipo nome[N];` e acessados por `nome[indice]` tanto para leitura quanto para escrita; todos os elementos sao zerados automaticamente na declaracao. O tamanho deve ser um literal inteiro positivo, e o indice precisa estar no intervalo valido em tempo de execucao (nao ha verificacao automatica de limites nesta versao).
+
+Estruturas sao declaradas no nivel do arquivo com `estrutura Nome { tipo campo1; tipo campo2; ... }` sem ponto e virgula apos a chave fechadora. Uma variavel local do tipo estrutura e declarada com `estrutura Nome variavel;` e seus campos sao acessados por `variavel.campo` para leitura e escrita. Campos ocupam um slot de 8 bytes cada e sao zerados na declaracao. Nesta versao, estruturas nao podem ser passadas como parametros nem usadas como tipo de retorno.
+
+O laco `para` segue o modelo classico `para (init; cond; step) corpo`, em que `init` pode ser uma declaracao de variavel (confinada ao escopo do laco), uma expressao ou vazio, e `cond` e `step` sao opcionais. O compilador converte `para` em um bloco contendo `init` seguido de `enquanto (cond) { corpo; step; }`, reutilizando integralmente o codegen do laco `enquanto`.
 
 O compilador expoe tres funcoes embutidas para saida em stdout, todas implementadas diretamente sobre a syscall `write`: `escrever_texto(literal_de_string)` emite um literal de string ja em `.rodata`; `escrever_inteiro(n)` imprime `n` em decimal, com sinal quando negativo; e `escrever_caractere(c)` imprime o byte correspondente. Por regra desta versao, o argumento de `escrever_texto` precisa ser um literal de string sintaticamente direto, o que evita a necessidade de ponteiros antes de existirem na linguagem.
 
@@ -109,7 +115,7 @@ O alvo `make memcheck` executa o Valgrind sobre o `brc` em cada teste com detecc
 
 ## Roadmap
 
-Os proximos incrementos previstos sao vetores de tamanho fixo com indexacao, a estrutura de repeticao `para` como acucar sintatico sobre `enquanto`, e o tipo `estrutura` com layout de campos acessaveis por `.campo`.
+Os incrementos inicialmente previstos para a versao 0.0.1a ja foram todos implementados. Entre as direcoes naturais para evoluir a linguagem estao ponteiros, passagem de vetores e estruturas como argumentos de funcao, strings dinamicas com operacoes de leitura de entrada, verificacao opcional de limites em acessos de vetor e um sistema de tipos com checagem mais rigorosa.
 
 ## Contribuindo
 

@@ -1,0 +1,18 @@
+// Soma os elementos de um vetor preenchido em laco.
+// 1+2+3+4+5+6+7+8+9+10 = 55
+// esperado: 55
+funcao inteiro principal() {
+    inteiro v[10];
+    inteiro i = 0;
+    enquanto (i < 10) {
+        v[i] = i + 1;
+        i = i + 1;
+    }
+    inteiro soma = 0;
+    i = 0;
+    enquanto (i < 10) {
+        soma = soma + v[i];
+        i = i + 1;
+    }
+    retornar soma;
+}

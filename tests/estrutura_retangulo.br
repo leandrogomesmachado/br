@@ -1,0 +1,26 @@
+// Estrutura com campos de tipos diferentes, calculo de area e perimetro.
+// Area = 6*4 = 24; perimetro = 2*(6+4) = 20.  24 * 100 + 20 = 2420
+// esperado: 2420
+estrutura Retangulo {
+    inteiro largura;
+    inteiro altura;
+    caractere marcador;
+}
+
+funcao inteiro area(inteiro l, inteiro a) {
+    retornar l * a;
+}
+
+funcao inteiro principal() {
+    estrutura Retangulo r;
+    r.largura  = 6;
+    r.altura   = 4;
+    r.marcador = '#';
+
+    escrever_caractere(r.marcador);
+    escrever_caractere('\n');
+
+    inteiro ar = area(r.largura, r.altura);
+    inteiro pe = 2 * (r.largura + r.altura);
+    retornar ar * 100 + pe;
+}

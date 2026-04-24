@@ -7,7 +7,7 @@ WARN     := -Wall -Wextra -Wpedantic -Werror -Wshadow -Wstrict-prototypes \
             -Wmissing-prototypes -Wold-style-definition
 OPT      := -O2
 DEBUG    := -g
-CFLAGS   := $(CSTD) $(WARN) $(OPT) $(DEBUG) -Iinclude
+CFLAGS   := $(CSTD) $(WARN) $(OPT) $(DEBUG) -Iinclude -MMD -MP
 LDFLAGS  :=
 
 SRC_DIR  := src
@@ -29,6 +29,10 @@ $(BIN): $(OBJS)
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | dirs
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+# Inclui os arquivos .d gerados pelo -MMD, para recompilar automaticamente
+# objetos quando um header incluido for modificado.
+-include $(OBJS:.o=.d)
 
 dirs:
 	@mkdir -p $(OBJ_DIR)

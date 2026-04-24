@@ -287,10 +287,45 @@ static void gen_expr(CG *g, const Expr *e)
         case EXPR_VAR:
             fprintf(g->out, "    movq    %d(%%rbp), %%rax\n", e->as.var.rbp_offset);
             break;
-        case EXPR_ASSIGN:
-            gen_expr(g, e->as.assign.value);
-            fprintf(g->out, "    movq    %%rax, %d(%%rbp)\n", e->as.assign.rbp_offset);
+        case EXPR_INDEX: {
+            /* Avalia o indice -> rax; endereco = rbp + base_offset + rax*8. */
+            gen_expr(g, e->as.index.index);
+            fprintf(g->out, "    movq    %d(%%rbp,%%rax,8), %%rax\n",
+                    e->as.index.base_offset);
             break;
+        }
+        case EXPR_FIELD:
+            fprintf(g->out, "    movq    %d(%%rbp), %%rax\n",
+                    e->as.field.rbp_offset);
+            break;
+        case EXPR_ASSIGN: {
+            const Expr *tgt = e->as.assign.target;
+            if (tgt->kind == EXPR_VAR) {
+                /* Simples: avalia o valor e armazena no slot escalar. */
+                gen_expr(g, e->as.assign.value);
+                fprintf(g->out, "    movq    %%rax, %d(%%rbp)\n",
+                        tgt->as.var.rbp_offset);
+            } else if (tgt->kind == EXPR_INDEX) {
+                /* v[i] = value: primeiro avalia 'value' e guarda na pilha,
+                 * depois calcula o endereco e faz o store. */
+                gen_expr(g, e->as.assign.value);
+                emit_push_rax(g);                          /* salva value */
+                gen_expr(g, tgt->as.index.index);          /* rax = i */
+                /* endereco do destino em %rdx */
+                fprintf(g->out, "    leaq    %d(%%rbp,%%rax,8), %%rdx\n",
+                        tgt->as.index.base_offset);
+                emit_pop(g, "rax");                        /* rax = value */
+                fprintf(g->out, "    movq    %%rax, (%%rdx)\n");
+            } else if (tgt->kind == EXPR_FIELD) {
+                /* p.campo = value: offset do campo ja foi resolvido. */
+                gen_expr(g, e->as.assign.value);
+                fprintf(g->out, "    movq    %%rax, %d(%%rbp)\n",
+                        tgt->as.field.rbp_offset);
+            } else {
+                br_fatal("codegen: EXPR_ASSIGN com alvo invalido (kind=%d)", tgt->kind);
+            }
+            break;
+        }
         case EXPR_UNARY:
             gen_expr(g, e->as.unary.operand);
             if (e->as.unary.op == UNOP_NEG) {
@@ -345,12 +380,29 @@ static void gen_stmt(CG *g, const Stmt *s)
             fprintf(g->out, "    jmp     .Lret_%s\n", g->func_name);
             break;
         case STMT_VAR_DECL:
-            if (s->as.var_decl.init) {
+            if (s->as.var_decl.array_len > 0) {
+                /* Zero-init de todos os slots do vetor via 'rep stosq'. */
+                fprintf(g->out, "    leaq    %d(%%rbp), %%rdi\n",
+                        s->as.var_decl.rbp_offset);
+                fprintf(g->out, "    movl    $%d, %%ecx\n",
+                        s->as.var_decl.array_len);
+                fprintf(g->out, "    xorl    %%eax, %%eax\n");
+                fprintf(g->out, "    rep stosq\n");
+            } else if (s->as.var_decl.init) {
                 gen_expr(g, s->as.var_decl.init);
                 fprintf(g->out, "    movq    %%rax, %d(%%rbp)\n", s->as.var_decl.rbp_offset);
             } else {
                 fprintf(g->out, "    movq    $0, %d(%%rbp)\n", s->as.var_decl.rbp_offset);
             }
+            break;
+        case STMT_STRUCT_VAR_DECL:
+            /* Zero-init de todos os campos da estrutura via 'rep stosq'. */
+            fprintf(g->out, "    leaq    %d(%%rbp), %%rdi\n",
+                    s->as.struct_var_decl.rbp_offset);
+            fprintf(g->out, "    movl    $%d, %%ecx\n",
+                    s->as.struct_var_decl.num_slots);
+            fprintf(g->out, "    xorl    %%eax, %%eax\n");
+            fprintf(g->out, "    rep stosq\n");
             break;
         case STMT_EXPR:
             gen_expr(g, s->as.expr);

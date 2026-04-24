@@ -19,6 +19,7 @@ static const Keyword KEYWORDS[] = {
     {"se",         TK_KW_SE},
     {"senao",      TK_KW_SENAO},
     {"enquanto",   TK_KW_ENQUANTO},
+    {"para",       TK_KW_PARA},
     {"retornar",   TK_KW_RETORNAR},
     {"estrutura",  TK_KW_ESTRUTURA},
 };
@@ -252,8 +253,11 @@ Token lexer_next(Lexer *lx)
         case ')': return make_tok(TK_RPAREN,  start, 1, start_line, start_col);
         case '{': return make_tok(TK_LBRACE,  start, 1, start_line, start_col);
         case '}': return make_tok(TK_RBRACE,  start, 1, start_line, start_col);
+        case '[': return make_tok(TK_LBRACK,  start, 1, start_line, start_col);
+        case ']': return make_tok(TK_RBRACK,  start, 1, start_line, start_col);
         case ';': return make_tok(TK_SEMI,    start, 1, start_line, start_col);
         case ',': return make_tok(TK_COMMA,   start, 1, start_line, start_col);
+        case '.': return make_tok(TK_DOT,     start, 1, start_line, start_col);
         case '+': return make_tok(TK_PLUS,    start, 1, start_line, start_col);
         case '-': return make_tok(TK_MINUS,   start, 1, start_line, start_col);
         case '*': return make_tok(TK_STAR,    start, 1, start_line, start_col);
@@ -295,8 +299,11 @@ const char *token_kind_name(TokenKind k)
         case TK_RPAREN:       return "')'";
         case TK_LBRACE:       return "'{'";
         case TK_RBRACE:       return "'}'";
+        case TK_LBRACK:       return "'['";
+        case TK_RBRACK:       return "']'";
         case TK_SEMI:         return "';'";
         case TK_COMMA:        return "','";
+        case TK_DOT:          return "'.'";
         case TK_PLUS:         return "'+'";
         case TK_MINUS:        return "'-'";
         case TK_STAR:         return "'*'";
@@ -319,6 +326,7 @@ const char *token_kind_name(TokenKind k)
         case TK_KW_SE:        return "'se'";
         case TK_KW_SENAO:     return "'senao'";
         case TK_KW_ENQUANTO:  return "'enquanto'";
+        case TK_KW_PARA:      return "'para'";
         case TK_KW_RETORNAR:  return "'retornar'";
         case TK_KW_ESTRUTURA: return "'estrutura'";
     }

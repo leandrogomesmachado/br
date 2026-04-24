@@ -38,12 +38,32 @@ Expr *ast_expr_var(const char *name, size_t name_len, int line, int col)
     return e;
 }
 
-Expr *ast_expr_assign(const char *name, size_t name_len, Expr *value, int line, int col)
+Expr *ast_expr_index(const char *name, size_t name_len, Expr *index, int line, int col)
+{
+    Expr *e = alloc_expr(EXPR_INDEX, line, col);
+    e->as.index.name        = br_xstrndup(name, name_len);
+    e->as.index.index       = index;
+    e->as.index.base_offset = 0;
+    e->as.index.array_len   = 0;
+    return e;
+}
+
+Expr *ast_expr_field(const char *var_name, size_t var_len,
+                     const char *field_name, size_t field_len,
+                     int line, int col)
+{
+    Expr *e = alloc_expr(EXPR_FIELD, line, col);
+    e->as.field.var_name   = br_xstrndup(var_name, var_len);
+    e->as.field.field_name = br_xstrndup(field_name, field_len);
+    e->as.field.rbp_offset = 0;
+    return e;
+}
+
+Expr *ast_expr_assign(Expr *target, Expr *value, int line, int col)
 {
     Expr *e = alloc_expr(EXPR_ASSIGN, line, col);
-    e->as.assign.name = br_xstrndup(name, name_len);
-    e->as.assign.rbp_offset = 0;
-    e->as.assign.value = value;
+    e->as.assign.target = target;
+    e->as.assign.value  = value;
     return e;
 }
 
@@ -92,13 +112,26 @@ Stmt *ast_stmt_return(Expr *e, int line, int col)
     return s;
 }
 
-Stmt *ast_stmt_var_decl(BrType type, const char *name, size_t name_len, Expr *init, int line, int col)
+Stmt *ast_stmt_var_decl(BrType type, const char *name, size_t name_len, int array_len, Expr *init, int line, int col)
 {
     Stmt *s = alloc_stmt(STMT_VAR_DECL, line, col);
-    s->as.var_decl.type = type;
-    s->as.var_decl.name = br_xstrndup(name, name_len);
+    s->as.var_decl.type       = type;
+    s->as.var_decl.name       = br_xstrndup(name, name_len);
     s->as.var_decl.rbp_offset = 0;
-    s->as.var_decl.init = init;
+    s->as.var_decl.array_len  = array_len;
+    s->as.var_decl.init       = init;
+    return s;
+}
+
+Stmt *ast_stmt_struct_var_decl(const char *struct_name, size_t sn_len,
+                               const char *var_name,    size_t vn_len,
+                               int line, int col)
+{
+    Stmt *s = alloc_stmt(STMT_STRUCT_VAR_DECL, line, col);
+    s->as.struct_var_decl.struct_name = br_xstrndup(struct_name, sn_len);
+    s->as.struct_var_decl.var_name    = br_xstrndup(var_name, vn_len);
+    s->as.struct_var_decl.rbp_offset  = 0;
+    s->as.struct_var_decl.num_slots   = 0;
     return s;
 }
 
@@ -155,14 +188,60 @@ void ast_block_append(Block *b, Stmt *s)
 
 void ast_program_init(Program *p)
 {
-    p->funcs  = NULL;
-    p->nfuncs = 0;
+    p->funcs    = NULL;
+    p->nfuncs   = 0;
+    p->structs  = NULL;
+    p->nstructs = 0;
 }
 
 void ast_program_add_func(Program *p, FuncDecl *f)
 {
     p->funcs = (FuncDecl **)br_xrealloc(p->funcs, (p->nfuncs + 1) * sizeof(FuncDecl *));
     p->funcs[p->nfuncs++] = f;
+}
+
+void ast_program_add_struct(Program *p, StructDecl *s)
+{
+    p->structs = (StructDecl **)br_xrealloc(p->structs, (p->nstructs + 1) * sizeof(StructDecl *));
+    p->structs[p->nstructs++] = s;
+}
+
+StructDecl *ast_struct_decl_new(const char *name, size_t name_len, int line, int col)
+{
+    StructDecl *s = (StructDecl *)br_xcalloc(1, sizeof(StructDecl));
+    s->name    = br_xstrndup(name, name_len);
+    s->fields  = NULL;
+    s->nfields = 0;
+    s->line    = line;
+    s->col     = col;
+    return s;
+}
+
+void ast_struct_decl_add_field(StructDecl *s, BrType type,
+                               const char *name, size_t name_len,
+                               int line, int col)
+{
+    s->fields = (Field *)br_xrealloc(s->fields, (s->nfields + 1) * sizeof(Field));
+    Field *f = &s->fields[s->nfields];
+    f->type        = type;
+    f->name        = br_xstrndup(name, name_len);
+    f->byte_offset = (int)(s->nfields * 8);   /* slots de 8 bytes, em ordem */
+    f->line        = line;
+    f->col         = col;
+    s->nfields++;
+}
+
+void ast_free_struct_decl(StructDecl *s)
+{
+    if (!s) {
+        return;
+    }
+    free(s->name);
+    for (size_t i = 0; i < s->nfields; i++) {
+        free(s->fields[i].name);
+    }
+    free(s->fields);
+    free(s);
 }
 
 /* ------------------------------ liberacao ----------------------------- */
@@ -181,8 +260,16 @@ void ast_free_expr(Expr *e)
         case EXPR_VAR:
             free(e->as.var.name);
             break;
+        case EXPR_INDEX:
+            free(e->as.index.name);
+            ast_free_expr(e->as.index.index);
+            break;
+        case EXPR_FIELD:
+            free(e->as.field.var_name);
+            free(e->as.field.field_name);
+            break;
         case EXPR_ASSIGN:
-            free(e->as.assign.name);
+            ast_free_expr(e->as.assign.target);
             ast_free_expr(e->as.assign.value);
             break;
         case EXPR_BINOP:
@@ -215,6 +302,10 @@ void ast_free_stmt(Stmt *s)
         case STMT_VAR_DECL:
             free(s->as.var_decl.name);
             ast_free_expr(s->as.var_decl.init);
+            break;
+        case STMT_STRUCT_VAR_DECL:
+            free(s->as.struct_var_decl.struct_name);
+            free(s->as.struct_var_decl.var_name);
             break;
         case STMT_EXPR:
             ast_free_expr(s->as.expr);
@@ -270,6 +361,12 @@ void ast_free_program(Program *p)
         ast_free_func(p->funcs[i]);
     }
     free(p->funcs);
-    p->funcs  = NULL;
-    p->nfuncs = 0;
+    for (size_t i = 0; i < p->nstructs; i++) {
+        ast_free_struct_decl(p->structs[i]);
+    }
+    free(p->structs);
+    p->funcs    = NULL;
+    p->nfuncs   = 0;
+    p->structs  = NULL;
+    p->nstructs = 0;
 }

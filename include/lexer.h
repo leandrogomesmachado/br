@@ -17,8 +17,11 @@ typedef enum {
     TK_RPAREN,       /* ) */
     TK_LBRACE,       /* { */
     TK_RBRACE,       /* } */
+    TK_LBRACK,       /* [ */
+    TK_RBRACK,       /* ] */
     TK_SEMI,         /* ; */
     TK_COMMA,        /* , */
+    TK_DOT,          /* . */
 
     /* Operadores aritmeticos */
     TK_PLUS,         /* + */
@@ -49,6 +52,7 @@ typedef enum {
     TK_KW_SE,        /* se */
     TK_KW_SENAO,     /* senao */
     TK_KW_ENQUANTO,  /* enquanto */
+    TK_KW_PARA,      /* para */
     TK_KW_RETORNAR,  /* retornar */
     TK_KW_ESTRUTURA  /* estrutura */
 } TokenKind;

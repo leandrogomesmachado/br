@@ -1,0 +1,13 @@
+// Estrutura simples com dois campos e acesso por '.'.
+// esperado: 12
+estrutura Ponto {
+    inteiro x;
+    inteiro y;
+}
+
+funcao inteiro principal() {
+    estrutura Ponto p;
+    p.x = 5;
+    p.y = 7;
+    retornar p.x + p.y;
+}

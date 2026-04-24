@@ -1,0 +1,9 @@
+// Laco 'para' classico: soma 1..10 = 55.
+// esperado: 55
+funcao inteiro principal() {
+    inteiro soma = 0;
+    para (inteiro i = 1; i <= 10; i = i + 1) {
+        soma = soma + i;
+    }
+    retornar soma;
+}
