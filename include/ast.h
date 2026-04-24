@@ -3,10 +3,15 @@
 
 #include <stddef.h>
 
+/* Forward-declaracao para permitir que BrType carregue referencia a uma
+ * StructDecl sem dependencia circular entre BrType e StructDecl. */
+typedef struct StructDecl StructDecl;
+
 typedef enum {
     BR_BASE_INTEIRO,
     BR_BASE_CARACTERE,
-    BR_BASE_VAZIO
+    BR_BASE_VAZIO,
+    BR_BASE_ESTRUTURA    /* struct_decl nao-NULL em BrType */
 } BrBaseType;
 
 /* Tipo da linguagem BR com suporte a ponteiros.
@@ -14,30 +19,52 @@ typedef enum {
  *   ptr_depth == 1 significa 'T *';
  *   ptr_depth == 2 significa 'T **', e assim por diante.
  * Mantemos BrType como struct passado por valor para minimizar mudancas
- * em assinaturas de construtores e fazer igualdade estrutural trivial. */
+ * em assinaturas de construtores e fazer igualdade estrutural trivial.
+ *
+ * struct_decl e' um ponteiro nao-dono para a declaracao de estrutura
+ * referenciada quando base == BR_BASE_ESTRUTURA; em qualquer outro caso
+ * e' NULL. O parser preenche esse campo fazendo lookup em Program durante
+ * a analise sintatica, o que exige que a estrutura seja declarada antes
+ * do seu primeiro uso no arquivo fonte (restricao que pode ser afrouxada
+ * em fase posterior com forward-declarations). */
 typedef struct {
-    BrBaseType base;
-    int        ptr_depth;
+    BrBaseType        base;
+    int               ptr_depth;
+    const StructDecl *struct_decl;
 } BrType;
 
 static inline BrType br_type_scalar(BrBaseType b)
 {
-    BrType t; t.base = b; t.ptr_depth = 0; return t;
+    BrType t; t.base = b; t.ptr_depth = 0; t.struct_decl = NULL; return t;
 }
 
 static inline BrType br_type_pointer(BrBaseType b, int depth)
 {
-    BrType t; t.base = b; t.ptr_depth = depth; return t;
+    BrType t; t.base = b; t.ptr_depth = depth; t.struct_decl = NULL; return t;
+}
+
+static inline BrType br_type_struct_ptr(const StructDecl *sd, int depth)
+{
+    BrType t;
+    t.base = BR_BASE_ESTRUTURA;
+    t.ptr_depth = depth;
+    t.struct_decl = sd;
+    return t;
 }
 
 static inline int br_type_eq(BrType a, BrType b)
 {
-    return a.base == b.base && a.ptr_depth == b.ptr_depth;
+    return a.base == b.base && a.ptr_depth == b.ptr_depth &&
+           a.struct_decl == b.struct_decl;
 }
 
 static inline int br_type_is_pointer(BrType t) { return t.ptr_depth > 0; }
 static inline int br_type_is_inteiro(BrType t) { return t.base == BR_BASE_INTEIRO  && t.ptr_depth == 0; }
 static inline int br_type_is_vazio(BrType t)   { return t.base == BR_BASE_VAZIO    && t.ptr_depth == 0; }
+static inline int br_type_is_struct_ptr(BrType t)
+{
+    return t.base == BR_BASE_ESTRUTURA && t.ptr_depth >= 1 && t.struct_decl != NULL;
+}
 
 /* Operadores binarios reconhecidos pela AST. */
 typedef enum {
@@ -102,9 +129,13 @@ struct Expr {
         } index;
 
         struct {
-            char *var_name;      /* nome da variavel struct (alocado) */
+            char *var_name;      /* nome da variavel (alocado) */
             char *field_name;    /* nome do campo (alocado) */
-            int   rbp_offset;    /* offset absoluto do campo no frame (resolver) */
+            int   rbp_offset;    /* via_pointer==0: offset absoluto do campo no frame;
+                                  * via_pointer==1: offset do SLOT DO PONTEIRO no frame */
+            int   field_byte_offset; /* so usado quando via_pointer==1: offset
+                                      * do campo dentro da estrutura apontada */
+            int   via_pointer;   /* 0 = 'var.campo'; 1 = 'p->campo' */
         } field;
 
         struct {
@@ -206,13 +237,13 @@ typedef struct {
     int    col;
 } Field;
 
-typedef struct StructDecl {
+struct StructDecl {
     char   *name;        /* alocado */
     Field  *fields;      /* vetor alocado */
     size_t  nfields;
     int     line;
     int     col;
-} StructDecl;
+};
 
 typedef struct FuncDecl {
     char   *name;          /* alocado */
@@ -263,6 +294,12 @@ void  ast_block_append(Block *b, Stmt *s);
 void  ast_program_init(Program *p);
 void  ast_program_add_func(Program *p, FuncDecl *f);
 void  ast_program_add_struct(Program *p, StructDecl *s);
+
+/* Procura uma estrutura ja declarada pelo nome (compara 'name[0..len)').
+ * Retorna NULL se nao encontrada. Usado pelo parser para resolver
+ * 'estrutura Nome' em tipos na propria fase sintatica. */
+const StructDecl *ast_program_find_struct(const Program *p,
+                                          const char *name, size_t name_len);
 
 /* Estruturas */
 StructDecl *ast_struct_decl_new(const char *name, size_t name_len, int line, int col);

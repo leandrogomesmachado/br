@@ -1,0 +1,32 @@
+// esperado: 60
+// Estrutura auto-referente: cada No aponta para o proximo via 'estrutura No *prox'.
+// Percorremos uma cadeia de 3 nos seguindo p = p->prox e somando p->valor.
+// Sem literal nulo, controlamos a parada usando uma contagem fixa.
+estrutura No {
+    inteiro valor;
+    estrutura No *prox;
+}
+
+funcao inteiro somar3(estrutura No *cab) {
+    inteiro total = 0;
+    estrutura No *p = cab;
+    inteiro i = 0;
+    enquanto (i < 3) {
+        total = total + p->valor;
+        p = p->prox;
+        i = i + 1;
+    }
+    retornar total;
+}
+
+funcao inteiro principal() {
+    estrutura No a;
+    estrutura No b;
+    estrutura No c;
+
+    a.valor = 10;  a.prox = &b;
+    b.valor = 20;  b.prox = &c;
+    c.valor = 30;  c.prox = &a;       // ciclo, mas paramos apos 3 visitas
+
+    retornar somar3(&a);              // 10 + 20 + 30 = 60
+}

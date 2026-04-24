@@ -8,6 +8,10 @@ typedef struct {
     Lexer      *lx;
     Token       cur;
     const char *path;
+    /* Programa sendo construido. Permite que parse_type resolva
+     * 'estrutura Nome' em tipos de parametros, campos e variaveis,
+     * bastando que a estrutura ja tenha sido declarada antes do uso. */
+    Program    *prog;
 } Parser;
 
 void parser_init(Parser *p, Lexer *lx, const char *path);

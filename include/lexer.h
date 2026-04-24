@@ -44,6 +44,7 @@ typedef enum {
     TK_AMP,          /* &  (address-of) */
     TK_AMP_AMP,      /* && */
     TK_PIPE_PIPE,    /* || */
+    TK_ARROW,        /* -> */
 
     /* Palavras-chave BR (portugues sem acentos) */
     TK_KW_FUNCAO,    /* funcao */

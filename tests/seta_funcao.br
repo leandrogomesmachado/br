@@ -1,0 +1,25 @@
+// esperado: 50
+// Passa estrutura por referencia para funcao que modifica seus campos.
+estrutura Ponto {
+    inteiro x;
+    inteiro y;
+}
+
+funcao vazio reset(estrutura Ponto *p, inteiro vx, inteiro vy) {
+    p->x = vx;
+    p->y = vy;
+}
+
+funcao inteiro distancia_manhattan(estrutura Ponto *p) {
+    inteiro dx = p->x;
+    inteiro dy = p->y;
+    se (dx < 0) { dx = -dx; }
+    se (dy < 0) { dy = -dy; }
+    retornar dx + dy;
+}
+
+funcao inteiro principal() {
+    estrutura Ponto a;
+    reset(&a, -20, 30);
+    retornar distancia_manhattan(&a);     // 20 + 30 = 50
+}

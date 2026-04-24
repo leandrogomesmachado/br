@@ -1,0 +1,16 @@
+// esperado: 30
+// Acesso e modificacao de campos via 'p->campo'.
+estrutura Ponto {
+    inteiro x;
+    inteiro y;
+}
+
+funcao inteiro principal() {
+    estrutura Ponto pt;
+    estrutura Ponto *p = &pt;
+
+    p->x = 10;
+    p->y = 20;
+
+    retornar p->x + p->y;
+}

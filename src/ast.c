@@ -2,6 +2,7 @@
 #include "utils.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 /* ----------------------------- expressoes ----------------------------- */
 
@@ -204,6 +205,18 @@ void ast_program_add_struct(Program *p, StructDecl *s)
 {
     p->structs = (StructDecl **)br_xrealloc(p->structs, (p->nstructs + 1) * sizeof(StructDecl *));
     p->structs[p->nstructs++] = s;
+}
+
+const StructDecl *ast_program_find_struct(const Program *p,
+                                          const char *name, size_t name_len)
+{
+    for (size_t i = 0; i < p->nstructs; i++) {
+        const char *sn = p->structs[i]->name;
+        if (strlen(sn) == name_len && memcmp(sn, name, name_len) == 0) {
+            return p->structs[i];
+        }
+    }
+    return NULL;
 }
 
 StructDecl *ast_struct_decl_new(const char *name, size_t name_len, int line, int col)

@@ -40,16 +40,46 @@ void parser_init(Parser *p, Lexer *lx, const char *path)
 {
     p->lx   = lx;
     p->path = path;
+    p->prog = NULL;            /* preenchido em parser_parse_program */
     advance(p);
 }
 
 /* ------------------------------ tipos --------------------------------- */
 
-/* tipo := base_tipo '*'*
- *   base_tipo: 'inteiro' | 'caractere' | 'vazio'
- * Qualquer numero de '*' apos o tipo base vira ptr_depth do BrType resultante. */
+/* tipo := 'inteiro' | 'caractere' | 'vazio' | 'estrutura' IDENT
+ * tipo := tipo '*'+
+ *
+ * Qualquer numero de '*' apos o tipo base vira ptr_depth do BrType resultante.
+ * No caso especial 'estrutura Nome', exige-se pelo menos um '*' (porque
+ * a forma por valor 'estrutura Nome var' existe apenas como STMT dedicado,
+ * nao como tipo de parametro ou retorno). A estrutura deve ter sido
+ * declarada antes do uso no arquivo fonte; o lookup acontece em Program. */
 static BrType parse_type(Parser *p)
 {
+    if (p->cur.kind == TK_KW_ESTRUTURA) {
+        int line = p->cur.line, col = p->cur.col;
+        advance(p);                          /* consome 'estrutura' */
+        Token sn = expect(p, TK_IDENT);
+        const StructDecl *sd =
+            ast_program_find_struct(p->prog, sn.lexeme, sn.length);
+        if (!sd) {
+            br_fatal_at(p->path, sn.line, sn.col,
+                        "estrutura '%.*s' nao declarada",
+                        (int)sn.length, sn.lexeme);
+        }
+        int depth = 0;
+        while (p->cur.kind == TK_STAR) {
+            advance(p);
+            depth++;
+        }
+        if (depth == 0) {
+            br_fatal_at(p->path, line, col,
+                        "tipo 'estrutura %s' sem '*' so e aceito em declaracao de variavel local; use '%s *'",
+                        sd->name, sd->name);
+        }
+        return br_type_struct_ptr(sd, depth);
+    }
+
     BrBaseType base;
     if (p->cur.kind == TK_KW_INTEIRO) {
         advance(p);
@@ -62,7 +92,7 @@ static BrType parse_type(Parser *p)
         base = BR_BASE_VAZIO;
     } else {
         br_fatal_at(p->path, p->cur.line, p->cur.col,
-                    "esperado tipo ('inteiro', 'caractere' ou 'vazio'), encontrado %s",
+                    "esperado tipo ('inteiro', 'caractere', 'vazio' ou 'estrutura Nome *'), encontrado %s",
                     token_kind_name(p->cur.kind));
     }
     int depth = 0;
@@ -207,7 +237,7 @@ static Expr *finish_index(Parser *p, Expr *name_expr)
     return result;
 }
 
-/* Consome '.' IDENT logo apos um IDENT e retorna EXPR_FIELD. */
+/* Consome '.' IDENT logo apos um IDENT e retorna EXPR_FIELD (via_pointer=0). */
 static Expr *finish_field(Parser *p, Expr *name_expr)
 {
     int line = name_expr->line;
@@ -220,6 +250,27 @@ static Expr *finish_field(Parser *p, Expr *name_expr)
     Token fn = expect(p, TK_IDENT);
     Expr *result = ast_expr_field(vn, strlen(vn),
                                   fn.lexeme, fn.length, line, col);
+    free(vn);
+    return result;
+}
+
+/* Consome '->' IDENT logo apos um IDENT e retorna EXPR_FIELD (via_pointer=1).
+ * Semanticamente equivalente a '(*var).campo': o resolver exige que 'var'
+ * tenha tipo 'estrutura Foo *' e o codegen carrega o ponteiro antes de
+ * adicionar o offset do campo. */
+static Expr *finish_arrow(Parser *p, Expr *name_expr)
+{
+    int line = name_expr->line;
+    int col  = name_expr->col;
+    char *vn = name_expr->as.var.name;
+    name_expr->as.var.name = NULL;
+    ast_free_expr(name_expr);
+
+    advance(p); /* consome '->' */
+    Token fn = expect(p, TK_IDENT);
+    Expr *result = ast_expr_field(vn, strlen(vn),
+                                  fn.lexeme, fn.length, line, col);
+    result->as.field.via_pointer = 1;
     free(vn);
     return result;
 }
@@ -240,6 +291,9 @@ static Expr *parse_postfix(Parser *p)
         }
         if (p->cur.kind == TK_DOT) {
             return finish_field(p, e);
+        }
+        if (p->cur.kind == TK_ARROW) {
+            return finish_arrow(p, e);
         }
     }
     return e;
@@ -582,11 +636,40 @@ static Stmt *parse_stmt(Parser *p)
         case TK_KW_CARACTERE:
         case TK_KW_VAZIO:     return parse_var_decl(p);
         case TK_KW_ESTRUTURA: {
-            /* Declaracao local de variavel do tipo estrutura:
-             *   'estrutura' NomeTipo nomeVar ';' */
+            /* Declaracao local envolvendo 'estrutura'. Duas formas distintas:
+             *   (a) 'estrutura' Nome IDENT ';'       -> STMT_STRUCT_VAR_DECL
+             *   (b) 'estrutura' Nome '*'+ IDENT ';'  -> STMT_VAR_DECL com tipo
+             *                                          ponteiro-para-estrutura.
+             * Diferenciamos consumindo 'estrutura' e o nome e olhando o proximo
+             * token: se for '*', vamos ao caminho (b); se for IDENT, (a). */
             int line = p->cur.line, col = p->cur.col;
-            advance(p);                 /* consome 'estrutura' */
+            advance(p);                     /* consome 'estrutura' */
             Token tn = expect(p, TK_IDENT);
+
+            if (p->cur.kind == TK_STAR) {
+                const StructDecl *sd =
+                    ast_program_find_struct(p->prog, tn.lexeme, tn.length);
+                if (!sd) {
+                    br_fatal_at(p->path, tn.line, tn.col,
+                                "estrutura '%.*s' nao declarada",
+                                (int)tn.length, tn.lexeme);
+                }
+                int depth = 0;
+                while (accept(p, TK_STAR)) {
+                    depth++;
+                }
+                BrType t = br_type_struct_ptr(sd, depth);
+                Token vn = expect(p, TK_IDENT);
+                Expr *init = NULL;
+                if (accept(p, TK_ASSIGN)) {
+                    init = parse_expr(p);
+                }
+                expect(p, TK_SEMI);
+                return ast_stmt_var_decl(t, vn.lexeme, vn.length,
+                                         0, init, line, col);
+            }
+
+            /* Caminho (a): 'estrutura Nome var;' como antes. */
             Token vn = expect(p, TK_IDENT);
             expect(p, TK_SEMI);
             return ast_stmt_struct_var_decl(tn.lexeme, tn.length,
@@ -662,15 +745,23 @@ static FuncDecl *parse_func(Parser *p)
     return f;
 }
 
-/* 'estrutura' NOME '{' (tipo IDENT ';')* '}'   (sem ';' depois do '}') */
+/* 'estrutura' NOME '{' (tipo IDENT ';')* '}'   (sem ';' depois do '}')
+ *
+ * A StructDecl recem-criada e' adicionada a Program ANTES da analise dos
+ * campos. Isso permite tipos auto-referentes em campos do tipo ponteiro,
+ * como em 'estrutura No { inteiro v; estrutura No *prox; }', porque o
+ * lookup feito por parse_type ja encontra a estrutura. Nao causa exposicao
+ * indevida porque o resolver so trabalha apos a analise sintatica completa
+ * e a checagem de duplicatas (em resolver.c) usa o array final em prog. */
 static StructDecl *parse_struct_decl(Parser *p)
 {
     int line = p->cur.line, col = p->cur.col;
     advance(p);                         /* consome 'estrutura' */
     Token name = expect(p, TK_IDENT);
-    expect(p, TK_LBRACE);
 
     StructDecl *s = ast_struct_decl_new(name.lexeme, name.length, line, col);
+    ast_program_add_struct(p->prog, s);
+    expect(p, TK_LBRACE);
     while (p->cur.kind != TK_RBRACE && p->cur.kind != TK_EOF) {
         int fline = p->cur.line, fcol = p->cur.col;
         BrType ft = parse_type(p);
@@ -694,15 +785,17 @@ Program parser_parse_program(Parser *p)
 {
     Program prog;
     ast_program_init(&prog);
+    p->prog = &prog;
     while (p->cur.kind != TK_EOF) {
         if (p->cur.kind == TK_KW_ESTRUTURA) {
-            StructDecl *s = parse_struct_decl(p);
-            ast_program_add_struct(&prog, s);
+            /* parse_struct_decl ja adiciona a estrutura em p->prog. */
+            (void)parse_struct_decl(p);
         } else {
             FuncDecl *f = parse_func(p);
             ast_program_add_func(&prog, f);
         }
     }
+    p->prog = NULL;
     if (prog.nfuncs == 0) {
         br_fatal_at(p->path, 1, 1,
                     "programa vazio: ao menos uma funcao e necessaria");

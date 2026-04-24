@@ -310,13 +310,29 @@ static void resolve_expr(RCtx *c, Expr *e)
                 br_fatal_at(c->path, e->line, e->col,
                             "variavel '%s' nao declarada", e->as.field.var_name);
             }
-            if (!se->struct_decl) {
-                br_fatal_at(c->path, e->line, e->col,
-                            "'%s' nao e uma variavel de estrutura; acesso '.' invalido",
-                            e->as.field.var_name);
+            const StructDecl *sd = NULL;
+            if (e->as.field.via_pointer) {
+                /* p->campo: 'p' precisa ser ponteiro-para-estrutura
+                 * (ptr_depth == 1, base == ESTRUTURA). Mais de um nivel
+                 * de indirecao exige '*' explicito antes do '->', que
+                 * por enquanto nao parseamos. */
+                if (!br_type_is_struct_ptr(se->type) || se->type.ptr_depth != 1) {
+                    br_fatal_at(c->path, e->line, e->col,
+                                "'%s' nao e do tipo 'estrutura X *'; uso de '->' invalido",
+                                e->as.field.var_name);
+                }
+                sd = se->type.struct_decl;
+            } else {
+                /* var.campo: 'var' precisa ser uma estrutura por valor
+                 * (declarada via STMT_STRUCT_VAR_DECL). */
+                if (!se->struct_decl) {
+                    br_fatal_at(c->path, e->line, e->col,
+                                "'%s' nao e uma variavel de estrutura; acesso '.' invalido",
+                                e->as.field.var_name);
+                }
+                sd = se->struct_decl;
             }
             /* Localiza o campo pelo nome na estrutura associada. */
-            const StructDecl *sd = se->struct_decl;
             const Field *fd = NULL;
             for (size_t i = 0; i < sd->nfields; i++) {
                 if (strcmp(sd->fields[i].name, e->as.field.field_name) == 0) {
@@ -329,7 +345,14 @@ static void resolve_expr(RCtx *c, Expr *e)
                             "estrutura '%s' nao possui o campo '%s'",
                             sd->name, e->as.field.field_name);
             }
-            e->as.field.rbp_offset = se->offset + fd->byte_offset;
+            if (e->as.field.via_pointer) {
+                /* Codegen carrega 'p' do slot e soma o offset do campo. */
+                e->as.field.rbp_offset       = se->offset;
+                e->as.field.field_byte_offset = fd->byte_offset;
+            } else {
+                /* Codegen acessa diretamente offset absoluto no frame. */
+                e->as.field.rbp_offset = se->offset + fd->byte_offset;
+            }
             e->eval_type = fd->type;
             break;
         }
@@ -391,13 +414,28 @@ static void resolve_expr(RCtx *c, Expr *e)
         }
         case EXPR_UNARY:
             if (e->as.unary.op == UNOP_ADDR) {
-                const Expr *op = e->as.unary.operand;
+                Expr *op = e->as.unary.operand;
                 int ok = (op->kind == EXPR_VAR || op->kind == EXPR_INDEX ||
                           op->kind == EXPR_FIELD ||
                           (op->kind == EXPR_UNARY && op->as.unary.op == UNOP_DEREF));
                 if (!ok) {
                     br_fatal_at(c->path, e->line, e->col,
                                 "operando de '&' deve ser uma variavel, elemento de vetor, campo de estrutura ou '*p'");
+                }
+                /* Caso especial: '&var' onde 'var' e' uma variavel de estrutura
+                 * declarada por STMT_STRUCT_VAR_DECL. resolve_expr de EXPR_VAR
+                 * trataria isso como erro ('estrutura como valor escalar'),
+                 * mas pegar o endereco e' justamente como passar a struct
+                 * por referencia. Resolvemos o operando manualmente aqui e
+                 * pulamos o resolve_expr generico abaixo. */
+                if (op->kind == EXPR_VAR) {
+                    const ScopeEntry *vs = scope_lookup_entry(c->scope, op->as.var.name);
+                    if (vs && vs->struct_decl) {
+                        op->as.var.rbp_offset = vs->offset;
+                        op->eval_type = br_type_struct_ptr(vs->struct_decl, 0);
+                        e->eval_type  = br_type_struct_ptr(vs->struct_decl, 1);
+                        break;
+                    }
                 }
             }
             resolve_expr(c, e->as.unary.operand);
@@ -408,7 +446,10 @@ static void resolve_expr(RCtx *c, Expr *e)
                     break;
                 case UNOP_ADDR: {
                     BrType t = e->as.unary.operand->eval_type;
-                    e->eval_type = br_type_pointer(t.base, t.ptr_depth + 1);
+                    /* Preserva struct_decl quando aplicavel. */
+                    BrType r = t;
+                    r.ptr_depth = t.ptr_depth + 1;
+                    e->eval_type = r;
                     break;
                 }
                 case UNOP_DEREF: {
@@ -418,7 +459,12 @@ static void resolve_expr(RCtx *c, Expr *e)
                         br_fatal_at(c->path, e->line, e->col,
                                     "operador '*' requer operando do tipo ponteiro");
                     }
-                    e->eval_type = br_type_pointer(t.base, t.ptr_depth - 1);
+                    BrType r = t;
+                    r.ptr_depth = t.ptr_depth - 1;
+                    /* Quando o resultado deixa de ser ponteiro, struct_decl
+                     * permanece se o tipo base for ESTRUTURA (por valor),
+                     * o que e' deliberado. */
+                    e->eval_type = r;
                     break;
                 }
             }

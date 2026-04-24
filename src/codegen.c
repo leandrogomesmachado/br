@@ -334,8 +334,18 @@ static void gen_expr(CG *g, const Expr *e)
             break;
         }
         case EXPR_FIELD:
-            fprintf(g->out, "    movq    %d(%%rbp), %%rax\n",
-                    e->as.field.rbp_offset);
+            if (e->as.field.via_pointer) {
+                /* p->campo: carrega 'p' do slot, soma o offset do campo
+                 * dentro da estrutura, e dereferencia. */
+                fprintf(g->out, "    movq    %d(%%rbp), %%rax\n",
+                        e->as.field.rbp_offset);
+                fprintf(g->out, "    movq    %d(%%rax), %%rax\n",
+                        e->as.field.field_byte_offset);
+            } else {
+                /* var.campo: offset absoluto ja calculado no resolver. */
+                fprintf(g->out, "    movq    %d(%%rbp), %%rax\n",
+                        e->as.field.rbp_offset);
+            }
             break;
         case EXPR_ASSIGN: {
             const Expr *tgt = e->as.assign.target;
@@ -364,10 +374,24 @@ static void gen_expr(CG *g, const Expr *e)
                 emit_pop(g, "rax");                        /* rax = value */
                 fprintf(g->out, "    movq    %%rax, (%%rdx)\n");
             } else if (tgt->kind == EXPR_FIELD) {
-                /* p.campo = value: offset do campo ja foi resolvido. */
-                gen_expr(g, e->as.assign.value);
-                fprintf(g->out, "    movq    %%rax, %d(%%rbp)\n",
-                        tgt->as.field.rbp_offset);
+                if (tgt->as.field.via_pointer) {
+                    /* p->campo = value. Avalia value, empilha; carrega 'p'
+                     * em rax; soma offset; ponteiro de destino em rdx;
+                     * desempilha value e store. */
+                    gen_expr(g, e->as.assign.value);
+                    emit_push_rax(g);
+                    fprintf(g->out, "    movq    %d(%%rbp), %%rax\n",
+                            tgt->as.field.rbp_offset);
+                    fprintf(g->out, "    leaq    %d(%%rax), %%rdx\n",
+                            tgt->as.field.field_byte_offset);
+                    emit_pop(g, "rax");
+                    fprintf(g->out, "    movq    %%rax, (%%rdx)\n");
+                } else {
+                    /* var.campo = value: offset do campo ja foi resolvido. */
+                    gen_expr(g, e->as.assign.value);
+                    fprintf(g->out, "    movq    %%rax, %d(%%rbp)\n",
+                            tgt->as.field.rbp_offset);
+                }
             } else if (tgt->kind == EXPR_UNARY && tgt->as.unary.op == UNOP_DEREF) {
                 /* *p = value. Avaliamos primeiro o valor e guardamos na
                  * pilha, depois carregamos o ponteiro em %rdx, e por fim
@@ -394,8 +418,16 @@ static void gen_expr(CG *g, const Expr *e)
                     fprintf(g->out, "    leaq    %d(%%rbp), %%rax\n",
                             op->as.var.rbp_offset);
                 } else if (op->kind == EXPR_FIELD) {
-                    fprintf(g->out, "    leaq    %d(%%rbp), %%rax\n",
-                            op->as.field.rbp_offset);
+                    if (op->as.field.via_pointer) {
+                        /* &p->campo: carrega p e soma offset (sem deref). */
+                        fprintf(g->out, "    movq    %d(%%rbp), %%rax\n",
+                                op->as.field.rbp_offset);
+                        fprintf(g->out, "    leaq    %d(%%rax), %%rax\n",
+                                op->as.field.field_byte_offset);
+                    } else {
+                        fprintf(g->out, "    leaq    %d(%%rbp), %%rax\n",
+                                op->as.field.rbp_offset);
+                    }
                 } else if (op->kind == EXPR_INDEX) {
                     gen_expr(g, op->as.index.index);       /* rax = i */
                     if (op->as.index.via_pointer) {

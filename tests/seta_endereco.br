@@ -1,0 +1,22 @@
+// esperado: 77
+// '&p->campo' produz um inteiro* que pode ser usado pelas regras gerais
+// de ponteiros: modificar via *q reflete no campo da estrutura original.
+estrutura Caixa {
+    inteiro a;
+    inteiro b;
+    inteiro c;
+}
+
+funcao inteiro principal() {
+    estrutura Caixa cx;
+    estrutura Caixa *p = &cx;
+
+    inteiro *qa = &p->a;
+    inteiro *qc = &p->c;
+
+    *qa = 7;
+    *qc = 70;
+    p->b = 0;            // ignorado no resultado
+
+    retornar p->a + p->c;        // 7 + 70 = 77
+}

@@ -259,7 +259,9 @@ Token lexer_next(Lexer *lx)
         case ',': return make_tok(TK_COMMA,   start, 1, start_line, start_col);
         case '.': return make_tok(TK_DOT,     start, 1, start_line, start_col);
         case '+': return make_tok(TK_PLUS,    start, 1, start_line, start_col);
-        case '-': return make_tok(TK_MINUS,   start, 1, start_line, start_col);
+        case '-':
+            if (c2 == '>') { advance_ch(lx); return make_tok(TK_ARROW, start, 2, start_line, start_col); }
+            return make_tok(TK_MINUS, start, 1, start_line, start_col);
         case '*': return make_tok(TK_STAR,    start, 1, start_line, start_col);
         case '/': return make_tok(TK_SLASH,   start, 1, start_line, start_col);
         case '%': return make_tok(TK_PERCENT, start, 1, start_line, start_col);
@@ -320,6 +322,7 @@ const char *token_kind_name(TokenKind k)
         case TK_AMP:          return "'&'";
         case TK_AMP_AMP:      return "'&&'";
         case TK_PIPE_PIPE:    return "'||'";
+        case TK_ARROW:        return "'->'";
         case TK_KW_FUNCAO:    return "'funcao'";
         case TK_KW_INTEIRO:   return "'inteiro'";
         case TK_KW_CARACTERE: return "'caractere'";
