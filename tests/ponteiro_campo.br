@@ -1,0 +1,19 @@
+// esperado: 30
+// Pega endereco de um campo de estrutura e modifica via ponteiro.
+estrutura Ponto {
+    inteiro x;
+    inteiro y;
+}
+
+funcao inteiro principal() {
+    estrutura Ponto p;
+    p.x = 10;
+    p.y = 20;
+
+    inteiro *px = &p.x;
+    inteiro *py = &p.y;
+    *px = *px + 0;          // no-op
+    *py = *py + 10;         // p.y vira 30
+
+    retornar p.y;
+}

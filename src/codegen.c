@@ -321,12 +321,52 @@ static void gen_expr(CG *g, const Expr *e)
                 gen_expr(g, e->as.assign.value);
                 fprintf(g->out, "    movq    %%rax, %d(%%rbp)\n",
                         tgt->as.field.rbp_offset);
+            } else if (tgt->kind == EXPR_UNARY && tgt->as.unary.op == UNOP_DEREF) {
+                /* *p = value. Avaliamos primeiro o valor e guardamos na
+                 * pilha, depois carregamos o ponteiro em %rdx, e por fim
+                 * fazemos store. Ordem escolhida para evitar efeito
+                 * colateral do calculo do ponteiro misturar-se com o do
+                 * valor quando houver chamadas no rhs. */
+                gen_expr(g, e->as.assign.value);
+                emit_push_rax(g);                          /* salva value */
+                gen_expr(g, tgt->as.unary.operand);        /* rax = ponteiro */
+                fprintf(g->out, "    movq    %%rax, %%rdx\n");
+                emit_pop(g, "rax");                        /* rax = value */
+                fprintf(g->out, "    movq    %%rax, (%%rdx)\n");
             } else {
                 br_fatal("codegen: EXPR_ASSIGN com alvo invalido (kind=%d)", tgt->kind);
             }
             break;
         }
         case EXPR_UNARY:
+            if (e->as.unary.op == UNOP_ADDR) {
+                /* &lvalue: emite leaq do endereco do operando em %rax,
+                 * sem percorrer gen_expr do operando (evita o load). */
+                const Expr *op = e->as.unary.operand;
+                if (op->kind == EXPR_VAR) {
+                    fprintf(g->out, "    leaq    %d(%%rbp), %%rax\n",
+                            op->as.var.rbp_offset);
+                } else if (op->kind == EXPR_FIELD) {
+                    fprintf(g->out, "    leaq    %d(%%rbp), %%rax\n",
+                            op->as.field.rbp_offset);
+                } else if (op->kind == EXPR_INDEX) {
+                    gen_expr(g, op->as.index.index);       /* rax = i */
+                    fprintf(g->out, "    leaq    %d(%%rbp,%%rax,8), %%rax\n",
+                            op->as.index.base_offset);
+                } else if (op->kind == EXPR_UNARY && op->as.unary.op == UNOP_DEREF) {
+                    /* &*p == p: emite apenas o ponteiro, sem load nem store. */
+                    gen_expr(g, op->as.unary.operand);
+                } else {
+                    br_fatal("codegen: operando invalido para '&' (kind=%d)", op->kind);
+                }
+                break;
+            }
+            if (e->as.unary.op == UNOP_DEREF) {
+                /* *p como leitura: carrega o ponteiro em rax e dereferencia. */
+                gen_expr(g, e->as.unary.operand);
+                fprintf(g->out, "    movq    (%%rax), %%rax\n");
+                break;
+            }
             gen_expr(g, e->as.unary.operand);
             if (e->as.unary.op == UNOP_NEG) {
                 fprintf(g->out, "    negq    %%rax\n");

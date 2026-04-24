@@ -1,0 +1,18 @@
+// esperado: 7
+// Funcao classica que so funciona com passagem por referencia.
+// Se ponteiros estao certos, 'a' fica com 5 e 'b' com 2; o retorno
+// b - a = 5 - (-2) seria impossivel sem a troca, entao aferimos
+// somando a diferenca esperada: a(5) + b(2) = 7.
+funcao vazio troca(inteiro *x, inteiro *y) {
+    inteiro tmp = *x;
+    *x = *y;
+    *y = tmp;
+}
+
+funcao inteiro principal() {
+    inteiro a = 2;
+    inteiro b = 5;
+    troca(&a, &b);
+    // apos a troca: a == 5, b == 2
+    retornar a + b;
+}

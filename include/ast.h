@@ -4,10 +4,40 @@
 #include <stddef.h>
 
 typedef enum {
-    TYPE_INTEIRO,
-    TYPE_CARACTERE,
-    TYPE_VAZIO
+    BR_BASE_INTEIRO,
+    BR_BASE_CARACTERE,
+    BR_BASE_VAZIO
+} BrBaseType;
+
+/* Tipo da linguagem BR com suporte a ponteiros.
+ *   ptr_depth == 0 significa escalar (ou 'vazio' para retorno de funcao);
+ *   ptr_depth == 1 significa 'T *';
+ *   ptr_depth == 2 significa 'T **', e assim por diante.
+ * Mantemos BrType como struct passado por valor para minimizar mudancas
+ * em assinaturas de construtores e fazer igualdade estrutural trivial. */
+typedef struct {
+    BrBaseType base;
+    int        ptr_depth;
 } BrType;
+
+static inline BrType br_type_scalar(BrBaseType b)
+{
+    BrType t; t.base = b; t.ptr_depth = 0; return t;
+}
+
+static inline BrType br_type_pointer(BrBaseType b, int depth)
+{
+    BrType t; t.base = b; t.ptr_depth = depth; return t;
+}
+
+static inline int br_type_eq(BrType a, BrType b)
+{
+    return a.base == b.base && a.ptr_depth == b.ptr_depth;
+}
+
+static inline int br_type_is_pointer(BrType t) { return t.ptr_depth > 0; }
+static inline int br_type_is_inteiro(BrType t) { return t.base == BR_BASE_INTEIRO  && t.ptr_depth == 0; }
+static inline int br_type_is_vazio(BrType t)   { return t.base == BR_BASE_VAZIO    && t.ptr_depth == 0; }
 
 /* Operadores binarios reconhecidos pela AST. */
 typedef enum {
@@ -18,8 +48,10 @@ typedef enum {
 } BinOp;
 
 typedef enum {
-    UNOP_NEG,   /* -x */
-    UNOP_NOT    /* !x */
+    UNOP_NEG,    /* -x */
+    UNOP_NOT,    /* !x */
+    UNOP_ADDR,   /* &x  (operando deve ser lvalue) */
+    UNOP_DEREF   /* *p  (operando deve produzir um ponteiro; tambem serve como lvalue) */
 } UnOp;
 
 typedef enum {

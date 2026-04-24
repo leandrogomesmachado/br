@@ -45,23 +45,32 @@ void parser_init(Parser *p, Lexer *lx, const char *path)
 
 /* ------------------------------ tipos --------------------------------- */
 
+/* tipo := base_tipo '*'*
+ *   base_tipo: 'inteiro' | 'caractere' | 'vazio'
+ * Qualquer numero de '*' apos o tipo base vira ptr_depth do BrType resultante. */
 static BrType parse_type(Parser *p)
 {
+    BrBaseType base;
     if (p->cur.kind == TK_KW_INTEIRO) {
         advance(p);
-        return TYPE_INTEIRO;
-    }
-    if (p->cur.kind == TK_KW_CARACTERE) {
+        base = BR_BASE_INTEIRO;
+    } else if (p->cur.kind == TK_KW_CARACTERE) {
         advance(p);
-        return TYPE_CARACTERE;
-    }
-    if (p->cur.kind == TK_KW_VAZIO) {
+        base = BR_BASE_CARACTERE;
+    } else if (p->cur.kind == TK_KW_VAZIO) {
         advance(p);
-        return TYPE_VAZIO;
+        base = BR_BASE_VAZIO;
+    } else {
+        br_fatal_at(p->path, p->cur.line, p->cur.col,
+                    "esperado tipo ('inteiro', 'caractere' ou 'vazio'), encontrado %s",
+                    token_kind_name(p->cur.kind));
     }
-    br_fatal_at(p->path, p->cur.line, p->cur.col,
-                "esperado tipo ('inteiro', 'caractere' ou 'vazio'), encontrado %s",
-                token_kind_name(p->cur.kind));
+    int depth = 0;
+    while (p->cur.kind == TK_STAR) {
+        advance(p);
+        depth++;
+    }
+    return br_type_pointer(base, depth);
 }
 
 /* Decodifica um literal de string ja tokenizado ('raw' inclui as aspas).
@@ -252,6 +261,26 @@ static Expr *parse_unary(Parser *p)
         Expr *operand = parse_unary(p);
         return ast_expr_unary(UNOP_NOT, operand, line, col);
     }
+    if (p->cur.kind == TK_AMP) {
+        /* address-of: &lvalue. A verificacao de que o operando e' um
+         * lvalue valido (variavel escalar, elemento de vetor, campo ou
+         * *p) fica a cargo do resolver. */
+        int line = p->cur.line;
+        int col  = p->cur.col;
+        advance(p);
+        Expr *operand = parse_unary(p);
+        return ast_expr_unary(UNOP_ADDR, operand, line, col);
+    }
+    if (p->cur.kind == TK_STAR) {
+        /* dereference: *expr. Como prefixo, nao se confunde com
+         * multiplicacao, que so aparece em parse_multiplicative entre
+         * dois parse_unary e portanto nunca no inicio de uma expressao. */
+        int line = p->cur.line;
+        int col  = p->cur.col;
+        advance(p);
+        Expr *operand = parse_unary(p);
+        return ast_expr_unary(UNOP_DEREF, operand, line, col);
+    }
     return parse_postfix(p);
 }
 
@@ -346,15 +375,26 @@ static Expr *parse_logical_or(Parser *p)
     return lhs;
 }
 
+/* Verifica se 'e' e um lvalue sintaticamente valido. Semantica adicional
+ * (p.ex. tipo efetivamente ponteiro em *p) e' responsabilidade do resolver. */
+static int is_lvalue_expr(const Expr *e)
+{
+    if (e->kind == EXPR_VAR || e->kind == EXPR_INDEX || e->kind == EXPR_FIELD) {
+        return 1;
+    }
+    if (e->kind == EXPR_UNARY && e->as.unary.op == UNOP_DEREF) {
+        return 1;
+    }
+    return 0;
+}
+
 static Expr *parse_assignment(Parser *p)
 {
     Expr *lhs = parse_logical_or(p);
     if (p->cur.kind == TK_ASSIGN) {
-        if (lhs->kind != EXPR_VAR &&
-            lhs->kind != EXPR_INDEX &&
-            lhs->kind != EXPR_FIELD) {
+        if (!is_lvalue_expr(lhs)) {
             br_fatal_at(p->path, p->cur.line, p->cur.col,
-                        "lado esquerdo de '=' deve ser uma variavel, um elemento de vetor ou um campo de estrutura");
+                        "lado esquerdo de '=' deve ser uma variavel, um elemento de vetor, um campo de estrutura ou uma expressao '*p'");
         }
         int line = p->cur.line, col = p->cur.col;
         advance(p);
@@ -634,7 +674,7 @@ static StructDecl *parse_struct_decl(Parser *p)
     while (p->cur.kind != TK_RBRACE && p->cur.kind != TK_EOF) {
         int fline = p->cur.line, fcol = p->cur.col;
         BrType ft = parse_type(p);
-        if (ft == TYPE_VAZIO) {
+        if (br_type_is_vazio(ft)) {
             br_fatal_at(p->path, fline, fcol,
                         "campo de estrutura nao pode ter tipo 'vazio'");
         }

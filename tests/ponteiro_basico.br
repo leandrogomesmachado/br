@@ -1,0 +1,8 @@
+// esperado: 42
+// Teste mais simples de ponteiros: leitura e escrita via *p.
+funcao inteiro principal() {
+    inteiro x = 10;
+    inteiro *p = &x;
+    *p = 42;
+    retornar x;
+}

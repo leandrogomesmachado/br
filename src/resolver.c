@@ -318,6 +318,20 @@ static void resolve_expr(RCtx *c, Expr *e)
             resolve_expr(c, e->as.binop.rhs);
             break;
         case EXPR_UNARY:
+            if (e->as.unary.op == UNOP_ADDR) {
+                /* &operando: o operando precisa ser um lvalue. Como o parser
+                 * ja bloqueia coisas que nunca sao lvalue (literais, chamadas
+                 * etc.) antes de '=', aqui reforcamos a regra explicitamente
+                 * para o caso do '&' nao assignment-context. */
+                const Expr *op = e->as.unary.operand;
+                int ok = (op->kind == EXPR_VAR || op->kind == EXPR_INDEX ||
+                          op->kind == EXPR_FIELD ||
+                          (op->kind == EXPR_UNARY && op->as.unary.op == UNOP_DEREF));
+                if (!ok) {
+                    br_fatal_at(c->path, e->line, e->col,
+                                "operando de '&' deve ser uma variavel, elemento de vetor, campo de estrutura ou '*p'");
+                }
+            }
             resolve_expr(c, e->as.unary.operand);
             break;
         case EXPR_CALL: {
@@ -513,7 +527,7 @@ void resolver_run(Program *prog, const char *path)
     }
     for (size_t i = 0; i < prog->nfuncs; i++) {
         if (strcmp(prog->funcs[i]->name, "principal") == 0 &&
-            prog->funcs[i]->return_type != TYPE_INTEIRO) {
+            !br_type_is_inteiro(prog->funcs[i]->return_type)) {
             br_fatal_at(path, prog->funcs[i]->line, prog->funcs[i]->col,
                         "funcao 'principal' deve retornar 'inteiro'");
         }

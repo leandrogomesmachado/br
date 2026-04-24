@@ -1,0 +1,15 @@
+// esperado: 10
+// Funcao utilitaria com ponteiro: incrementa o valor apontado 'n' vezes.
+funcao vazio adiciona(inteiro *p, inteiro n) {
+    inteiro i = 0;
+    enquanto (i < n) {
+        *p = *p + 1;
+        i = i + 1;
+    }
+}
+
+funcao inteiro principal() {
+    inteiro x = 0;
+    adiciona(&x, 10);
+    retornar x;
+}

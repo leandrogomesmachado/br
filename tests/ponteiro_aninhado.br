@@ -1,0 +1,13 @@
+// esperado: 99
+// Testa ponteiro para ponteiro e dereferencia dupla.
+funcao inteiro principal() {
+    inteiro x = 1;
+    inteiro *p = &x;
+    inteiro **pp = &p;
+
+    // **pp escreve em x
+    **pp = 99;
+
+    // leitura dupla deve ver 99
+    retornar **pp;
+}

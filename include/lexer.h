@@ -41,6 +41,7 @@ typedef enum {
 
     /* Logicos */
     TK_BANG,         /* ! */
+    TK_AMP,          /* &  (address-of) */
     TK_AMP_AMP,      /* && */
     TK_PIPE_PIPE,    /* || */
 

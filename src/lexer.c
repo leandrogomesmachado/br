@@ -277,7 +277,7 @@ Token lexer_next(Lexer *lx)
             return make_tok(TK_GT, start, 1, start_line, start_col);
         case '&':
             if (c2 == '&') { advance_ch(lx); return make_tok(TK_AMP_AMP, start, 2, start_line, start_col); }
-            break;
+            return make_tok(TK_AMP, start, 1, start_line, start_col);
         case '|':
             if (c2 == '|') { advance_ch(lx); return make_tok(TK_PIPE_PIPE, start, 2, start_line, start_col); }
             break;
@@ -317,6 +317,7 @@ const char *token_kind_name(TokenKind k)
         case TK_GT:           return "'>'";
         case TK_GE:           return "'>='";
         case TK_BANG:         return "'!'";
+        case TK_AMP:          return "'&'";
         case TK_AMP_AMP:      return "'&&'";
         case TK_PIPE_PIPE:    return "'||'";
         case TK_KW_FUNCAO:    return "'funcao'";

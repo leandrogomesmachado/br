@@ -1,0 +1,8 @@
+// esperado: 42
+// Pega endereco de um elemento de vetor e escreve atraves dele.
+funcao inteiro principal() {
+    inteiro v[4];
+    inteiro *p = &v[2];
+    *p = 42;
+    retornar v[2];
+}
