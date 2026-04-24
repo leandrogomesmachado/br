@@ -1,0 +1,10 @@
+// Variaveis locais e atribuicao encadeada.
+// esperado: 40
+funcao inteiro principal() {
+    inteiro a = 10;
+    inteiro b = 20;
+    inteiro c;
+    c = a + b;
+    a = c * 2;
+    retornar a - b;   // = 60 - 20 = 40
+}

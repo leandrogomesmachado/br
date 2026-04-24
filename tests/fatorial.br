@@ -1,0 +1,12 @@
+// Recursao: 5! = 120.
+// esperado: 120
+funcao inteiro fatorial(inteiro n) {
+    se (n <= 1) {
+        retornar 1;
+    }
+    retornar n * fatorial(n - 1);
+}
+
+funcao inteiro principal() {
+    retornar fatorial(5);
+}

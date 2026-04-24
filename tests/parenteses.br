@@ -1,0 +1,5 @@
+// (2 + 3) * 4 - -1 = 20 + 1 = 21
+// esperado: 21
+funcao inteiro principal() {
+    retornar (2 + 3) * 4 - -1;
+}

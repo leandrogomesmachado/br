@@ -1,0 +1,5 @@
+// Testa precedencia: 2 + 3 * 4 - 10 / 5 = 2 + 12 - 2 = 12
+// esperado: 12
+funcao inteiro principal() {
+    retornar 2 + 3 * 4 - 10 / 5;
+}

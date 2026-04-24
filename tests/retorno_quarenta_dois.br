@@ -1,0 +1,5 @@
+// tests/retorno_quarenta_dois.br
+// Programa minimo: retorna 42.
+funcao inteiro principal() {
+    retornar 42;
+}

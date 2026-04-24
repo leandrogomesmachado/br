@@ -1,0 +1,5 @@
+// tests/retorno_zero.br
+// Programa minimo: retorna 0.
+funcao inteiro principal() {
+    retornar 0;
+}

@@ -1,0 +1,11 @@
+// Soma 1..10 = 55
+// esperado: 55
+funcao inteiro principal() {
+    inteiro i = 1;
+    inteiro soma = 0;
+    enquanto (i <= 10) {
+        soma = soma + i;
+        i = i + 1;
+    }
+    retornar soma;
+}

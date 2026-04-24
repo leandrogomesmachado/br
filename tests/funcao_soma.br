@@ -1,0 +1,9 @@
+// Funcao auxiliar com parametros.
+// esperado: 42
+funcao inteiro soma(inteiro a, inteiro b) {
+    retornar a + b;
+}
+
+funcao inteiro principal() {
+    retornar soma(40, 2);
+}

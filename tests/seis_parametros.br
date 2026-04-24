@@ -1,0 +1,10 @@
+// Todos os 6 registradores de argumento da ABI SysV: rdi, rsi, rdx, rcx, r8, r9.
+// 1 + 2 + 4 + 8 + 16 + 32 = 63
+// esperado: 63
+funcao inteiro soma6(inteiro a, inteiro b, inteiro c, inteiro d, inteiro e, inteiro f) {
+    retornar a + b + c + d + e + f;
+}
+
+funcao inteiro principal() {
+    retornar soma6(1, 2, 4, 8, 16, 32);
+}

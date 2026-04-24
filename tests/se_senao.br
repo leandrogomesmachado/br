@@ -1,0 +1,13 @@
+// se/senao aninhado com comparacoes.
+// esperado: 33
+funcao inteiro principal() {
+    inteiro x = 7;
+    se (x < 5) {
+        retornar 1;
+    } senao se (x == 7) {
+        retornar 33;
+    } senao {
+        retornar 2;
+    }
+    retornar 99;
+}

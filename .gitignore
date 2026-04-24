@@ -1,0 +1,20 @@
+# Artefatos de build do compilador brc (C host)
+build/
+brc
+
+# Artefatos dos testes .br (assembly, objeto, executavel gerado)
+tests/*.s
+tests/*.o
+tests/*.out
+tests/*.err
+
+# Arquivos temporarios de editores
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# SO
+.DS_Store
+Thumbs.db
