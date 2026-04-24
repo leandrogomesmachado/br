@@ -21,6 +21,15 @@ Expr *ast_expr_int_lit(long long v, int line, int col)
     return e;
 }
 
+Expr *ast_expr_str_lit(char *data_owned, size_t len, int line, int col)
+{
+    Expr *e = alloc_expr(EXPR_STR_LIT, line, col);
+    e->as.str_lit.data     = data_owned;
+    e->as.str_lit.len      = len;
+    e->as.str_lit.label_id = -1;
+    return e;
+}
+
 Expr *ast_expr_var(const char *name, size_t name_len, int line, int col)
 {
     Expr *e = alloc_expr(EXPR_VAR, line, col);
@@ -165,6 +174,9 @@ void ast_free_expr(Expr *e)
     }
     switch (e->kind) {
         case EXPR_INT_LIT:
+            break;
+        case EXPR_STR_LIT:
+            free(e->as.str_lit.data);
             break;
         case EXPR_VAR:
             free(e->as.var.name);

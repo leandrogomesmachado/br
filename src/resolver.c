@@ -156,6 +156,28 @@ typedef struct {
 static void resolve_expr(RCtx *c, Expr *e);
 static void resolve_stmt(RCtx *c, Stmt *s);
 
+/* Nomes das funcoes embutidas (builtins) que o codegen intercepta.
+ * Sao registradas no FuncTable para que chamadas a elas passem pelas
+ * validacoes normais (existencia e aridade). */
+static const struct {
+    const char *name;
+    size_t      nparams;
+} BUILTINS[] = {
+    { "escrever_texto",     1 },
+    { "escrever_inteiro",   1 },
+    { "escrever_caractere", 1 },
+};
+
+static int is_builtin(const char *name)
+{
+    for (size_t i = 0; i < sizeof(BUILTINS) / sizeof(BUILTINS[0]); i++) {
+        if (strcmp(BUILTINS[i].name, name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void resolve_expr(RCtx *c, Expr *e)
 {
     if (!e) {
@@ -163,6 +185,12 @@ static void resolve_expr(RCtx *c, Expr *e)
     }
     switch (e->kind) {
         case EXPR_INT_LIT:
+            break;
+        case EXPR_STR_LIT:
+            /* Literais de string so sao aceitaveis como argumento direto
+             * de 'escrever_texto'. Essa validacao e' aplicada em EXPR_CALL. */
+            br_fatal_at(c->path, e->line, e->col,
+                        "literal de string so pode ser usado como argumento de 'escrever_texto'");
             break;
         case EXPR_VAR: {
             int off = scope_lookup(c->scope, e->as.var.name);
@@ -202,6 +230,18 @@ static void resolve_expr(RCtx *c, Expr *e)
                 br_fatal_at(c->path, e->line, e->col,
                             "funcao '%s' espera %zu argumento(s), %zu fornecido(s)",
                             e->as.call.name, sig->nparams, e->as.call.nargs);
+            }
+            /* Regra especial: 'escrever_texto' exige que seu unico argumento
+             * seja um literal de string sintaticamente direto. Nao chamamos
+             * resolve_expr nesse argumento porque EXPR_STR_LIT em contexto
+             * generico e' erro (veja case EXPR_STR_LIT acima). */
+            if (strcmp(e->as.call.name, "escrever_texto") == 0) {
+                if (e->as.call.nargs != 1 ||
+                    e->as.call.args[0]->kind != EXPR_STR_LIT) {
+                    br_fatal_at(c->path, e->line, e->col,
+                                "'escrever_texto' requer um literal de string como argumento");
+                }
+                break;
             }
             for (size_t i = 0; i < e->as.call.nargs; i++) {
                 resolve_expr(c, e->as.call.args[i]);
@@ -301,9 +341,17 @@ void resolver_run(Program *prog, const char *path)
     FuncTable ftab;
     ftab_init(&ftab);
 
-    /* 1a passagem: popular a tabela de funcoes (permite chamadas mutuas). */
+    /* 1a passagem: registrar builtins primeiro, depois popular a tabela com
+     * as funcoes declaradas pelo programa (permitindo chamadas mutuas). */
+    for (size_t i = 0; i < sizeof(BUILTINS) / sizeof(BUILTINS[0]); i++) {
+        ftab_add(&ftab, BUILTINS[i].name, BUILTINS[i].nparams);
+    }
     for (size_t i = 0; i < prog->nfuncs; i++) {
         FuncDecl *f = prog->funcs[i];
+        if (is_builtin(f->name)) {
+            br_fatal_at(path, f->line, f->col,
+                        "nome '%s' e reservado (funcao embutida)", f->name);
+        }
         if (ftab_find(&ftab, f->name)) {
             br_fatal_at(path, f->line, f->col,
                         "funcao '%s' redefinida", f->name);

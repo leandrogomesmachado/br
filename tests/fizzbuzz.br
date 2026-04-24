@@ -1,0 +1,18 @@
+// FizzBuzz classico de 1 a 15.
+funcao inteiro principal() {
+    inteiro i = 1;
+    enquanto (i <= 15) {
+        se (i % 15 == 0) {
+            escrever_texto("FizzBuzz");
+        } senao se (i % 3 == 0) {
+            escrever_texto("Fizz");
+        } senao se (i % 5 == 0) {
+            escrever_texto("Buzz");
+        } senao {
+            escrever_inteiro(i);
+        }
+        escrever_caractere('\n');
+        i = i + 1;
+    }
+    retornar 0;
+}

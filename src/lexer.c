@@ -168,6 +168,82 @@ Token lexer_next(Lexer *lx)
         return t;
     }
 
+    /* literal de caractere: 'c' ou '\n' '\t' '\r' '\0' '\\' '\'' '\"' */
+    if (c == '\'') {
+        advance_ch(lx);
+        int ch = peek_ch(lx);
+        int decoded;
+        if (ch == '\0' || ch == '\n') {
+            br_fatal_at(lx->path, start_line, start_col,
+                        "literal de caractere nao terminado");
+        }
+        if (ch == '\\') {
+            advance_ch(lx);
+            int esc = peek_ch(lx);
+            switch (esc) {
+                case 'n':  decoded = '\n'; break;
+                case 't':  decoded = '\t'; break;
+                case 'r':  decoded = '\r'; break;
+                case '0':  decoded = '\0'; break;
+                case '\\': decoded = '\\'; break;
+                case '\'': decoded = '\''; break;
+                case '"':  decoded = '"';  break;
+                default:
+                    br_fatal_at(lx->path, lx->line, lx->col,
+                                "escape desconhecido '\\%c' em literal de caractere", esc);
+            }
+            advance_ch(lx);
+        } else {
+            decoded = ch;
+            advance_ch(lx);
+        }
+        if (peek_ch(lx) != '\'') {
+            br_fatal_at(lx->path, lx->line, lx->col,
+                        "esperado ''' fechando literal de caractere");
+        }
+        advance_ch(lx); /* consome aspas fechadora */
+        size_t len = (size_t)((lx->src + lx->pos) - start);
+        Token t = make_tok(TK_INT_LIT, start, len, start_line, start_col);
+        t.int_val = (long long)(unsigned char)decoded;
+        return t;
+    }
+
+    /* literal de string: "texto com escapes". O lexeme inclui as aspas;
+     * a decodificacao (escape handling) fica a cargo do parser. */
+    if (c == '"') {
+        advance_ch(lx); /* consome aspas de abertura */
+        for (;;) {
+            int ch = peek_ch(lx);
+            if (ch == '\0' || ch == '\n') {
+                br_fatal_at(lx->path, start_line, start_col,
+                            "literal de string nao terminado");
+            }
+            if (ch == '"') {
+                advance_ch(lx); /* consome aspas de fechamento */
+                break;
+            }
+            if (ch == '\\') {
+                advance_ch(lx);
+                int esc = peek_ch(lx);
+                if (esc == '\0' || esc == '\n') {
+                    br_fatal_at(lx->path, start_line, start_col,
+                                "escape nao terminado em literal de string");
+                }
+                /* valida que o escape e conhecido, sem decodificar aqui */
+                if (esc != 'n' && esc != 't' && esc != 'r' && esc != '0' &&
+                    esc != '\\' && esc != '\'' && esc != '"') {
+                    br_fatal_at(lx->path, lx->line, lx->col,
+                                "escape desconhecido '\\%c' em literal de string", esc);
+                }
+                advance_ch(lx);
+                continue;
+            }
+            advance_ch(lx);
+        }
+        size_t len = (size_t)((lx->src + lx->pos) - start);
+        return make_tok(TK_STR_LIT, start, len, start_line, start_col);
+    }
+
     /* operadores e pontuacao */
     int c2 = peek_ch_at(lx, 1);
     advance_ch(lx);
@@ -213,6 +289,7 @@ const char *token_kind_name(TokenKind k)
     switch (k) {
         case TK_EOF:          return "fim-de-arquivo";
         case TK_INT_LIT:      return "literal inteiro";
+        case TK_STR_LIT:      return "literal de string";
         case TK_IDENT:        return "identificador";
         case TK_LPAREN:       return "'('";
         case TK_RPAREN:       return "')'";

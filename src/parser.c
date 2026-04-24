@@ -51,13 +51,49 @@ static BrType parse_type(Parser *p)
         advance(p);
         return TYPE_INTEIRO;
     }
+    if (p->cur.kind == TK_KW_CARACTERE) {
+        advance(p);
+        return TYPE_CARACTERE;
+    }
     if (p->cur.kind == TK_KW_VAZIO) {
         advance(p);
         return TYPE_VAZIO;
     }
     br_fatal_at(p->path, p->cur.line, p->cur.col,
-                "esperado tipo ('inteiro' ou 'vazio'), encontrado %s",
+                "esperado tipo ('inteiro', 'caractere' ou 'vazio'), encontrado %s",
                 token_kind_name(p->cur.kind));
+}
+
+/* Decodifica um literal de string ja tokenizado ('raw' inclui as aspas).
+ * Retorna buffer alocado (posse do chamador) e escreve tamanho em *out_len.
+ * Escapes aceitos: \n \t \r \0 \\ \' \" (validados pelo lexer). */
+static char *decode_string_literal(const char *raw, size_t raw_len, size_t *out_len)
+{
+    /* raw[0] == '"' e raw[raw_len-1] == '"' (garantido pelo lexer). */
+    const char *p = raw + 1;
+    const char *end = raw + raw_len - 1;
+    char *buf = (char *)br_xmalloc(raw_len);    /* upper bound */
+    size_t n = 0;
+    while (p < end) {
+        if (*p == '\\') {
+            p++;
+            switch (*p) {
+                case 'n':  buf[n++] = '\n'; break;
+                case 't':  buf[n++] = '\t'; break;
+                case 'r':  buf[n++] = '\r'; break;
+                case '0':  buf[n++] = '\0'; break;
+                case '\\': buf[n++] = '\\'; break;
+                case '\'': buf[n++] = '\''; break;
+                case '"':  buf[n++] = '"';  break;
+                default:   buf[n++] = *p;   break; /* inalcancavel: lexer ja validou */
+            }
+            p++;
+        } else {
+            buf[n++] = *p++;
+        }
+    }
+    *out_len = n;
+    return buf;
 }
 
 /* ------------------------ expressoes (precedencia) -------------------- *
@@ -85,6 +121,12 @@ static Expr *parse_primary(Parser *p)
     if (t.kind == TK_INT_LIT) {
         advance(p);
         return ast_expr_int_lit(t.int_val, t.line, t.col);
+    }
+    if (t.kind == TK_STR_LIT) {
+        advance(p);
+        size_t decoded_len = 0;
+        char *decoded = decode_string_literal(t.lexeme, t.length, &decoded_len);
+        return ast_expr_str_lit(decoded, decoded_len, t.line, t.col);
     }
     if (t.kind == TK_IDENT) {
         advance(p);
@@ -355,6 +397,7 @@ static Stmt *parse_stmt(Parser *p)
         case TK_KW_ENQUANTO:  return parse_while(p);
         case TK_KW_RETORNAR:  return parse_return(p);
         case TK_KW_INTEIRO:
+        case TK_KW_CARACTERE:
         case TK_KW_VAZIO:     return parse_var_decl(p);
         default: {
             int line = p->cur.line, col = p->cur.col;

@@ -1,0 +1,5 @@
+// Classico 'ola mundo' usando escrever_texto e literais de string.
+funcao inteiro principal() {
+    escrever_texto("ola, mundo!\n");
+    retornar 0;
+}

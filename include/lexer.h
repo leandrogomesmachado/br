@@ -8,7 +8,8 @@ typedef enum {
     TK_EOF = 0,
 
     /* Literais */
-    TK_INT_LIT,      /* 123 */
+    TK_INT_LIT,      /* 123 ou 'c' (char-literal tambem vira inteiro) */
+    TK_STR_LIT,      /* "texto" (lexeme aponta para a fonte, entre aspas) */
     TK_IDENT,        /* nome */
 
     /* Pontuacao / operadores */

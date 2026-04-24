@@ -1,0 +1,14 @@
+// Exercita escrever_inteiro com valor positivo, negativo e zero.
+funcao vazio imprimir_linha(inteiro n) {
+    escrever_inteiro(n);
+    escrever_caractere('\n');
+    retornar;
+}
+
+funcao inteiro principal() {
+    imprimir_linha(0);
+    imprimir_linha(42);
+    imprimir_linha(-123);
+    imprimir_linha(9876543210);
+    retornar 0;
+}

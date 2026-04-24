@@ -34,7 +34,8 @@ dirs:
 	@mkdir -p $(OBJ_DIR)
 
 clean:
-	rm -rf $(OBJ_DIR) $(BIN) $(TEST_DIR)/*.s $(TEST_DIR)/*.o $(TEST_DIR)/*.out
+	rm -rf $(OBJ_DIR) $(BIN) $(TEST_DIR)/*.s $(TEST_DIR)/*.o \
+	       $(TEST_DIR)/*.out $(TEST_DIR)/*.err $(TEST_DIR)/*.stdout $(TEST_DIR)/*.diff
 
 test: $(BIN)
 	@./scripts/run_tests.sh

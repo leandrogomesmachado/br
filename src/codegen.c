@@ -22,10 +22,22 @@
  * --------------------------------------------------------------------- */
 
 typedef struct {
+    const Expr *expr;        /* aponta ao EXPR_STR_LIT (nao-dono) */
+    int         label_id;    /* usado em .LCstr<id> em .rodata */
+} StrEntry;
+
+typedef struct {
     FILE       *out;
     const char *func_name;   /* funcao em emissao (usado para label de retorno) */
     int         label_id;    /* contador global de labels (.L<N>) */
     int         stack_depth; /* bytes empilhados alem do frame (sempre >= 0) */
+
+    StrEntry   *strs;        /* pool de string literals a emitir em .rodata */
+    size_t      nstrs;
+    size_t      strs_cap;
+    int         next_str_id;
+
+    int         uses_print_int; /* se qualquer chamada a escrever_inteiro existir */
 } CG;
 
 static const char *const ARG_REGS[] = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
@@ -141,8 +153,96 @@ static void gen_binop_logical(CG *g, const Expr *e)
     fprintf(g->out, ".Ldone_%d:\n", l_end);
 }
 
+/* Adiciona um literal de string ao pool e retorna o label_id atribuido.
+ * Mesmo texto aparecendo duas vezes gera duas entradas (nao deduplica). */
+static int intern_string(CG *g, const Expr *se)
+{
+    if (g->nstrs == g->strs_cap) {
+        g->strs_cap = g->strs_cap ? g->strs_cap * 2 : 8;
+        g->strs = (StrEntry *)br_xrealloc(g->strs, g->strs_cap * sizeof(StrEntry));
+    }
+    int id = g->next_str_id++;
+    g->strs[g->nstrs].expr     = se;
+    g->strs[g->nstrs].label_id = id;
+    g->nstrs++;
+    return id;
+}
+
+/* Emite syscall write(1, buf, len) onde buf e' o endereco de um rotulo
+ * .LCstr<id> em .rodata. Nao perturba stack_depth. */
+static void gen_builtin_escrever_texto(CG *g, const Expr *e)
+{
+    const Expr *arg = e->as.call.args[0]; /* EXPR_STR_LIT, garantido pelo resolver */
+    int sid = intern_string(g, arg);
+    fprintf(g->out, "    movl    $1, %%edi\n");                      /* fd = stdout */
+    fprintf(g->out, "    leaq    .LCstr%d(%%rip), %%rsi\n", sid);    /* buf */
+    fprintf(g->out, "    movq    $%zu, %%rdx\n", arg->as.str_lit.len); /* len */
+    fprintf(g->out, "    movl    $1, %%eax\n");                      /* SYS_write */
+    fprintf(g->out, "    syscall\n");
+    fprintf(g->out, "    xorq    %%rax, %%rax\n");                   /* retorno = 0 */
+}
+
+/* Emite um write(1, &byte, 1) onde &byte fica no topo da pilha. */
+static void gen_builtin_escrever_caractere(CG *g, const Expr *e)
+{
+    gen_expr(g, e->as.call.args[0]);              /* valor em %rax */
+    emit_push_rax(g);                             /* stack_depth += 8 */
+    fprintf(g->out, "    movl    $1, %%edi\n");
+    fprintf(g->out, "    movq    %%rsp, %%rsi\n"); /* endereco do byte (little-endian) */
+    fprintf(g->out, "    movq    $1, %%rdx\n");
+    fprintf(g->out, "    movl    $1, %%eax\n");    /* SYS_write */
+    fprintf(g->out, "    syscall\n");
+    /* descarta o slot sem pop-em-registrador para nao precisar de destino */
+    fprintf(g->out, "    addq    $8, %%rsp\n");
+    g->stack_depth -= 8;
+    fprintf(g->out, "    xorq    %%rax, %%rax\n");
+}
+
+/* Emite 'call __br_print_int' passando o valor em %rdi. */
+static void gen_builtin_escrever_inteiro(CG *g, const Expr *e)
+{
+    g->uses_print_int = 1;
+
+    /* Alinhamento de stack antes do call, igual a gen_call. */
+    int pad = (g->stack_depth % 16 != 0) ? 8 : 0;
+    if (pad) {
+        fprintf(g->out, "    subq    $8, %%rsp\n");
+        g->stack_depth += 8;
+    }
+    gen_expr(g, e->as.call.args[0]);                      /* valor em %rax */
+    fprintf(g->out, "    movq    %%rax, %%rdi\n");
+    fprintf(g->out, "    call    __br_print_int\n");
+    if (pad) {
+        fprintf(g->out, "    addq    $8, %%rsp\n");
+        g->stack_depth -= 8;
+    }
+    fprintf(g->out, "    xorq    %%rax, %%rax\n");
+}
+
+static int try_gen_builtin(CG *g, const Expr *e)
+{
+    const char *name = e->as.call.name;
+    if (strcmp(name, "escrever_texto") == 0) {
+        gen_builtin_escrever_texto(g, e);
+        return 1;
+    }
+    if (strcmp(name, "escrever_caractere") == 0) {
+        gen_builtin_escrever_caractere(g, e);
+        return 1;
+    }
+    if (strcmp(name, "escrever_inteiro") == 0) {
+        gen_builtin_escrever_inteiro(g, e);
+        return 1;
+    }
+    return 0;
+}
+
 static void gen_call(CG *g, const Expr *e)
 {
+    if (try_gen_builtin(g, e)) {
+        return;
+    }
+
     size_t n = e->as.call.nargs;
 
     /* Se stack_depth antes da chamada nao for multiplo de 16, insere pad. */
@@ -177,6 +277,12 @@ static void gen_expr(CG *g, const Expr *e)
     switch (e->kind) {
         case EXPR_INT_LIT:
             fprintf(g->out, "    movq    $%lld, %%rax\n", e->as.int_lit);
+            break;
+        case EXPR_STR_LIT:
+            /* O resolver garante que so chegamos aqui se a string nao
+             * estiver no contexto de 'escrever_texto'. Se ainda assim
+             * alguma evolucao futura deixar passar, falhamos ruidosamente. */
+            br_fatal("codegen: EXPR_STR_LIT em contexto generico (bug)");
             break;
         case EXPR_VAR:
             fprintf(g->out, "    movq    %d(%%rbp), %%rax\n", e->as.var.rbp_offset);
@@ -314,17 +420,100 @@ static void gen_func(CG *g, const FuncDecl *f)
     fprintf(g->out, "    ret\n");
 }
 
+/* ------------------------- runtime embutido -------------------------- */
+
+/* __br_print_int(rdi = valor inteiro de 64 bits com sinal):
+ *   converte 'rdi' em decimal ASCII e emite via write(1, buf, len).
+ *   Retorna 0 em rax. Nao usa libc. */
+static void emit_runtime_print_int(FILE *out)
+{
+    fprintf(out,
+        "    .globl  __br_print_int\n"
+        "    .type   __br_print_int, @function\n"
+        "__br_print_int:\n"
+        "    pushq   %%rbp\n"
+        "    movq    %%rsp, %%rbp\n"
+        "    subq    $32, %%rsp\n"              /* buffer [rbp-32 .. rbp-1] */
+        "    movq    %%rdi, %%rax\n"            /* rax = valor */
+        "    xorl    %%r8d, %%r8d\n"            /* r8 = flag negativo (0/1) */
+        "    cmpq    $0, %%rax\n"
+        "    jge     .Lpi_pos\n"
+        "    movl    $1, %%r8d\n"
+        "    negq    %%rax\n"
+        ".Lpi_pos:\n"
+        "    leaq    -1(%%rbp), %%rcx\n"        /* rcx aponta para byte a gravar */
+        "    cmpq    $0, %%rax\n"
+        "    jne     .Lpi_loop\n"
+        "    movb    $48, (%%rcx)\n"            /* '0' == 48 */
+        "    decq    %%rcx\n"
+        "    jmp     .Lpi_sign\n"
+        ".Lpi_loop:\n"
+        "    testq   %%rax, %%rax\n"
+        "    jz      .Lpi_sign\n"
+        "    movq    $10, %%r9\n"
+        "    cqto\n"                            /* sign-extend rax -> rdx:rax */
+        "    idivq   %%r9\n"                    /* rax=quociente, rdx=resto */
+        "    addq    $48, %%rdx\n"              /* digito ASCII */
+        "    movb    %%dl, (%%rcx)\n"
+        "    decq    %%rcx\n"
+        "    jmp     .Lpi_loop\n"
+        ".Lpi_sign:\n"
+        "    testl   %%r8d, %%r8d\n"
+        "    jz      .Lpi_write\n"
+        "    movb    $45, (%%rcx)\n"            /* '-' == 45 */
+        "    decq    %%rcx\n"
+        ".Lpi_write:\n"
+        /* buf = rcx + 1; len = (rbp - 1) - rcx */
+        "    leaq    1(%%rcx), %%rsi\n"
+        "    leaq    -1(%%rbp), %%rdx\n"
+        "    subq    %%rcx, %%rdx\n"
+        "    movl    $1, %%edi\n"               /* fd = stdout */
+        "    movl    $1, %%eax\n"               /* SYS_write */
+        "    syscall\n"
+        "    xorq    %%rax, %%rax\n"
+        "    movq    %%rbp, %%rsp\n"
+        "    popq    %%rbp\n"
+        "    ret\n");
+}
+
 /* ---------------------------- entrada -------------------------------- */
+
+static void emit_rodata(CG *g)
+{
+    if (g->nstrs == 0) {
+        return;
+    }
+    fprintf(g->out, "    .section .rodata\n");
+    for (size_t i = 0; i < g->nstrs; i++) {
+        const Expr *se = g->strs[i].expr;
+        fprintf(g->out, ".LCstr%d:\n", g->strs[i].label_id);
+        /* Emite byte-a-byte para suportar qualquer conteudo binario. */
+        fprintf(g->out, "    .byte ");
+        for (size_t j = 0; j < se->as.str_lit.len; j++) {
+            unsigned c = (unsigned char)se->as.str_lit.data[j];
+            fprintf(g->out, "%s%u", (j == 0 ? "" : ","), c);
+        }
+        fprintf(g->out, "\n");
+    }
+}
 
 void codegen_emit(FILE *out, const Program *prog)
 {
-    CG g = { out, NULL, 0, 0 };
+    CG g = {
+        .out = out, .func_name = NULL, .label_id = 0, .stack_depth = 0,
+        .strs = NULL, .nstrs = 0, .strs_cap = 0, .next_str_id = 0,
+        .uses_print_int = 0,
+    };
 
     fprintf(out, "# Gerado por brc v0.0.1a\n");
     fprintf(out, "    .text\n");
 
     for (size_t i = 0; i < prog->nfuncs; i++) {
         gen_func(&g, prog->funcs[i]);
+    }
+
+    if (g.uses_print_int) {
+        emit_runtime_print_int(out);
     }
 
     /* _start: chama principal e encerra via syscall exit(rax). */
@@ -335,4 +524,8 @@ void codegen_emit(FILE *out, const Program *prog)
     fprintf(out, "    movq    %%rax, %%rdi\n");
     fprintf(out, "    movq    $60, %%rax\n");     /* SYS_exit */
     fprintf(out, "    syscall\n");
+
+    emit_rodata(&g);
+
+    free(g.strs);
 }

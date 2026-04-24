@@ -2,11 +2,13 @@
 build/
 brc
 
-# Artefatos dos testes .br (assembly, objeto, executavel gerado)
+# Artefatos dos testes .br (assembly, objeto, executavel, stdout, diff)
 tests/*.s
 tests/*.o
 tests/*.out
 tests/*.err
+tests/*.stdout
+tests/*.diff
 
 # Arquivos temporarios de editores
 *.swp

@@ -5,6 +5,7 @@
 
 typedef enum {
     TYPE_INTEIRO,
+    TYPE_CARACTERE,
     TYPE_VAZIO
 } BrType;
 
@@ -23,6 +24,7 @@ typedef enum {
 
 typedef enum {
     EXPR_INT_LIT,
+    EXPR_STR_LIT,
     EXPR_VAR,
     EXPR_ASSIGN,
     EXPR_BINOP,
@@ -38,6 +40,12 @@ struct Expr {
     int      col;
     union {
         long long int_lit;
+
+        struct {
+            char  *data;         /* bytes decodificados (nao terminados em 0) */
+            size_t len;          /* numero de bytes validos em data */
+            int    label_id;     /* rotulo .LCstr<N> atribuido pelo codegen */
+        } str_lit;
 
         struct {
             char *name;          /* alocado; resolvido pelo resolver */
@@ -144,6 +152,7 @@ typedef struct {
 
 /* Construtores de expressoes (alocam com malloc). */
 Expr *ast_expr_int_lit(long long v, int line, int col);
+Expr *ast_expr_str_lit(char *data_owned, size_t len, int line, int col);
 Expr *ast_expr_var(const char *name, size_t name_len, int line, int col);
 Expr *ast_expr_assign(const char *name, size_t name_len, Expr *value, int line, int col);
 Expr *ast_expr_binop(BinOp op, Expr *lhs, Expr *rhs, int line, int col);

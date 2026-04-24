@@ -1,0 +1,13 @@
+// Usa o tipo 'caractere' e escrever_caractere.
+funcao vazio escrever_saudacao(caractere inicial) {
+    escrever_caractere(inicial);
+    escrever_caractere('i');
+    escrever_caractere('\n');
+    retornar;
+}
+
+funcao inteiro principal() {
+    escrever_saudacao('O');
+    escrever_saudacao('a');
+    retornar 0;
+}

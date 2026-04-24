@@ -6,7 +6,7 @@ Este repositorio contem o compilador oficial da linguagem, chamado `brc`. A vers
 
 ## Status
 
-A versao 0.0.1a e funcional e suporta um subconjunto suficiente para programas nao triviais: multiplas funcoes, recursao, variaveis locais, aritmetica inteira com precedencia, operadores de comparacao, operadores logicos com curto-circuito, controle de fluxo com `se`/`senao` e `enquanto`, e passagem de ate seis parametros por registrador seguindo a ABI System V AMD64.
+A versao 0.0.1a e funcional e suporta um subconjunto suficiente para programas nao triviais: multiplas funcoes, recursao, variaveis locais, aritmetica inteira com precedencia, operadores de comparacao, operadores logicos com curto-circuito, controle de fluxo com `se`/`senao` e `enquanto`, passagem de ate seis parametros por registrador seguindo a ABI System V AMD64, tipos primitivos `inteiro` e `caractere`, literais de caractere (`'A'`, `'\n'`) e de cadeia de caracteres (`"texto"`) e funcoes embutidas de saida padrao que escrevem diretamente no descritor de arquivo 1 via syscall. Um programa nesta versao ja consegue, por exemplo, executar FizzBuzz imprimindo o resultado em stdout.
 
 Todos os testes automatizados passam sem vazamentos de memoria verificados pelo Valgrind, e o compilador e compilado sem nenhum aviso pelo GCC com as flags `-Wall -Wextra -Wpedantic -Werror`.
 
@@ -56,13 +56,28 @@ Compilando e executando:
 echo $?   # imprime 120
 ```
 
+Um exemplo com saida em stdout usando as funcoes embutidas:
+
+```br
+funcao inteiro principal() {
+    escrever_texto("ola, mundo!\n");
+    escrever_inteiro(2026);
+    escrever_caractere('\n');
+    retornar 0;
+}
+```
+
+Ao executar, esse programa imprime `ola, mundo!`, uma nova linha, e em seguida `2026`.
+
 ## Resumo da sintaxe suportada
 
-As palavras-chave atuais sao `funcao`, `inteiro`, `caractere`, `vazio`, `se`, `senao`, `enquanto`, `retornar` e `estrutura`. Apenas `funcao`, `inteiro`, `vazio`, `se`, `senao`, `enquanto` e `retornar` tem implementacao completa nesta versao; `caractere` e `estrutura` estao reservadas.
+As palavras-chave atuais sao `funcao`, `inteiro`, `caractere`, `vazio`, `se`, `senao`, `enquanto`, `retornar` e `estrutura`. Apenas `estrutura` permanece reservada para uma versao futura; todas as demais ja tem implementacao completa nesta versao.
 
-A ponto de entrada de todo programa e uma funcao chamada `principal`, que retorna `inteiro` e nao recebe parametros. O valor retornado por ela e o codigo de saida do processo.
+O ponto de entrada de todo programa e uma funcao chamada `principal`, que retorna `inteiro` e nao recebe parametros. O valor retornado por ela e o codigo de saida do processo.
 
-Tipos primitivos atualmente suportados sao `inteiro` (inteiro com sinal de 64 bits) e `vazio` (usado apenas em tipos de retorno). Os operadores aritmeticos sao `+`, `-`, `*`, `/`, `%`; os de comparacao sao `==`, `!=`, `<`, `<=`, `>`, `>=`; os logicos sao `&&`, `||`, `!`, todos com curto-circuito para os binarios.
+Os tipos primitivos suportados sao `inteiro` (inteiro com sinal de 64 bits), `caractere` (um byte representado em um slot de 8 bytes para simplicidade de codegen) e `vazio` (usado apenas em tipos de retorno). Os operadores aritmeticos sao `+`, `-`, `*`, `/`, `%`; os de comparacao sao `==`, `!=`, `<`, `<=`, `>`, `>=`; os logicos sao `&&`, `||`, `!`, todos com curto-circuito para os binarios. Literais de caractere seguem a forma `'c'` e aceitam as sequencias de escape `\n`, `\t`, `\r`, `\0`, `\\`, `\'` e `\"`; literais de string seguem a forma `"..."` com as mesmas sequencias.
+
+O compilador expoe tres funcoes embutidas para saida em stdout, todas implementadas diretamente sobre a syscall `write`: `escrever_texto(literal_de_string)` emite um literal de string ja em `.rodata`; `escrever_inteiro(n)` imprime `n` em decimal, com sinal quando negativo; e `escrever_caractere(c)` imprime o byte correspondente. Por regra desta versao, o argumento de `escrever_texto` precisa ser um literal de string sintaticamente direto, o que evita a necessidade de ponteiros antes de existirem na linguagem.
 
 Comentarios de linha comecam com `//`. Comentarios de bloco sao delimitados por `/*` e `*/`.
 
@@ -86,13 +101,15 @@ build/      objetos intermediarios (ignorado pelo git)
 
 ## Testes
 
-O runner em `scripts/run_tests.sh` compila cada arquivo `tests/*.br` usando o `brc`, executa o binario resultante e compara o codigo de saida com o valor esperado. O valor esperado pode ser indicado explicitamente no arquivo de teste por um comentario no formato `// esperado: N`. Na ausencia desse marcador, o runner deduz o esperado pela ultima ocorrencia de `retornar N` no codigo, o que e adequado para testes simples.
+O runner em `scripts/run_tests.sh` compila cada arquivo `tests/*.br` usando o `brc`, executa o binario resultante, compara o codigo de saida com o valor esperado e, opcionalmente, compara a saida padrao do programa com um arquivo de referencia. O codigo de saida esperado pode ser indicado explicitamente por um comentario no formato `// esperado: N` no proprio fonte. Na ausencia desse marcador, o runner deduz o esperado pela ultima ocorrencia de `retornar N` literal no codigo, o que e suficiente para testes simples; quando nem o marcador nem uma constante literal estao presentes mas ha um arquivo de saida esperada, o codigo esperado assume o valor zero.
+
+A comparacao de saida padrao e ativada pela existencia de um arquivo `tests/NAME.saida` ao lado de `tests/NAME.br`. Quando esse arquivo existe, o stdout do programa e comparado byte a byte com o seu conteudo, e uma diferenca qualquer reprova o teste. Essa abordagem evita a necessidade de embutir sequencias de escape em comentarios e preserva exatamente o que deve sair na tela.
 
 O alvo `make memcheck` executa o Valgrind sobre o `brc` em cada teste com deteccao completa de vazamentos e tratamento de qualquer erro de memoria como falha.
 
 ## Roadmap
 
-Os proximos incrementos previstos, sem ordem rigida, sao o suporte real a `caractere` como tipo de 1 byte, uma forma basica de saida (por exemplo, uma funcao embutida que chame a syscall `write`), literais de cadeia de caracteres, vetores, a estrutura de repeticao `para` como acucar sintatico sobre `enquanto` e, posteriormente, o tipo `estrutura` com layout de campos.
+Os proximos incrementos previstos sao vetores de tamanho fixo com indexacao, a estrutura de repeticao `para` como acucar sintatico sobre `enquanto`, e o tipo `estrutura` com layout de campos acessaveis por `.campo`.
 
 ## Contribuindo
 
