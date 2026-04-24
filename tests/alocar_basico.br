@@ -1,0 +1,9 @@
+// esperado: 42
+// Aloca um slot, escreve, le e libera.
+funcao inteiro principal() {
+    inteiro *p = alocar(8);
+    *p = 42;
+    inteiro v = *p;
+    liberar(p, 8);
+    retornar v;
+}

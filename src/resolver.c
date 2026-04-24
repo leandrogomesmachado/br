@@ -217,15 +217,21 @@ static void resolve_stmt(RCtx *c, Stmt *s);
 
 /* Nomes das funcoes embutidas (builtins) que o codegen intercepta.
  * Sao registradas no FuncTable para que chamadas a elas passem pelas
- * validacoes normais (existencia e aridade). Todas retornam 'inteiro'
- * (zero em caso de sucesso, consistente com o codegen atual). */
+ * validacoes normais (existencia e aridade). 'kind' identifica o tipo
+ * de retorno: 0 = 'inteiro', 1 = 'vazio *' (ponteiro generico). */
 static const struct {
     const char *name;
     size_t      nparams;
+    int         kind;
 } BUILTINS[] = {
-    { "escrever_texto",     1 },
-    { "escrever_inteiro",   1 },
-    { "escrever_caractere", 1 },
+    { "escrever_texto",     1, 0 },
+    { "escrever_inteiro",   1, 0 },
+    { "escrever_caractere", 1, 0 },
+    /* G.3: alocacao dinamica via mmap/munmap. 'alocar(bytes)' retorna um
+     * ponteiro para a regiao alocada (tipo 'vazio *'); 'liberar(p, bytes)'
+     * retorna 0 em sucesso. */
+    { "alocar",             1, 1 },
+    { "liberar",            2, 0 },
 };
 
 static int is_builtin(const char *name)
@@ -631,9 +637,11 @@ void resolver_run(Program *prog, const char *path)
 
     /* 1a passagem: registrar builtins primeiro, depois popular a tabela com
      * as funcoes declaradas pelo programa (permitindo chamadas mutuas). */
-    BrType rt_int = br_type_scalar(BR_BASE_INTEIRO);
+    BrType rt_int    = br_type_scalar(BR_BASE_INTEIRO);
+    BrType rt_vazio_ptr = br_type_pointer(BR_BASE_VAZIO, 1);
     for (size_t i = 0; i < sizeof(BUILTINS) / sizeof(BUILTINS[0]); i++) {
-        ftab_add(&ftab, BUILTINS[i].name, BUILTINS[i].nparams, rt_int);
+        BrType rt = BUILTINS[i].kind == 1 ? rt_vazio_ptr : rt_int;
+        ftab_add(&ftab, BUILTINS[i].name, BUILTINS[i].nparams, rt);
     }
     for (size_t i = 0; i < prog->nfuncs; i++) {
         FuncDecl *f = prog->funcs[i];

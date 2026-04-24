@@ -1,0 +1,53 @@
+// esperado: 55
+// Constroi uma lista ligada no heap com 'alocar' e percorre somando.
+// 1+2+3+4+5+6+7+8+9+10 = 55.
+estrutura No {
+    inteiro valor;
+    estrutura No *prox;
+}
+
+funcao estrutura No *construir(inteiro n) {
+    estrutura No *cab = alocar(16);
+    cab->valor = 1;
+    cab->prox  = cab;            // sentinela: cauda aponta para si mesma
+
+    estrutura No *atual = cab;
+    inteiro i = 2;
+    enquanto (i <= n) {
+        estrutura No *novo = alocar(16);
+        novo->valor = i;
+        novo->prox  = novo;      // novo final aponta para si mesmo
+        atual->prox = novo;      // ligamos ao predecessor
+        atual = novo;
+        i = i + 1;
+    }
+    retornar cab;
+}
+
+funcao inteiro somar(estrutura No *cab) {
+    inteiro total = 0;
+    estrutura No *p = cab;
+    enquanto (p != p->prox) {
+        total = total + p->valor;
+        p = p->prox;
+    }
+    total = total + p->valor;    // ultimo no (auto-referente)
+    retornar total;
+}
+
+funcao vazio liberar_lista(estrutura No *cab) {
+    estrutura No *p = cab;
+    enquanto (p != p->prox) {
+        estrutura No *prox = p->prox;
+        liberar(p, 16);
+        p = prox;
+    }
+    liberar(p, 16);              // ultimo no
+}
+
+funcao inteiro principal() {
+    estrutura No *cab = construir(10);
+    inteiro total = somar(cab);
+    liberar_lista(cab);
+    retornar total;
+}

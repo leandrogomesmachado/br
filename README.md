@@ -89,6 +89,8 @@ O laco `para` segue o modelo classico `para (init; cond; step) corpo`, em que `i
 
 O compilador expoe tres funcoes embutidas para saida em stdout, todas implementadas diretamente sobre a syscall `write`: `escrever_texto(literal_de_string)` emite um literal de string ja em `.rodata`; `escrever_inteiro(n)` imprime `n` em decimal, com sinal quando negativo; e `escrever_caractere(c)` imprime o byte correspondente. Por regra desta versao, o argumento de `escrever_texto` precisa ser um literal de string sintaticamente direto, o que evita a necessidade de ponteiros antes de existirem na linguagem.
 
+Para alocacao dinamica de memoria, ha duas funcoes embutidas implementadas diretamente sobre as syscalls `mmap` e `munmap`, sem libc: `alocar(bytes)` retorna um ponteiro `vazio *` para uma regiao recem-alocada de pelo menos `bytes` bytes, com leitura e escrita autorizadas; `liberar(p, bytes)` devolve essa regiao ao kernel. O ponteiro retornado pode ser atribuido a qualquer tipo de ponteiro (`inteiro *`, `estrutura Nome *`, etc.), o que permite construir vetores dinamicos, estruturas no heap e listas ligadas com `alocar(16)` por no. Em caso de falha, `alocar` retorna `-1` (consequencia direta do contrato da syscall `mmap`); o programa BR e responsavel por verificar antes de dereferenciar. O tamanho passado para `liberar` precisa ser o mesmo passado a `alocar`, igualmente seguindo o contrato de `munmap`.
+
 Comentarios de linha comecam com `//`. Comentarios de bloco sao delimitados por `/*` e `*/`.
 
 Uma regra fundamental da linguagem e que nao se usa acentuacao nem cedilha em nenhuma palavra-chave ou token da sintaxe. Programas BR devem ser digitaveis em qualquer teclado internacional, sem layout especifico de Portugues.

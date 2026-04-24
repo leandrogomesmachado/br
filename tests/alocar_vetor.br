@@ -1,0 +1,23 @@
+// esperado: 45
+// Aloca um vetor dinamico de 10 inteiros, preenche com 0..9 e soma.
+// 0+1+2+...+9 = 45.
+funcao inteiro principal() {
+    inteiro n = 10;
+    inteiro *v = alocar(n * 8);
+
+    inteiro i = 0;
+    enquanto (i < n) {
+        v[i] = i;
+        i = i + 1;
+    }
+
+    inteiro total = 0;
+    i = 0;
+    enquanto (i < n) {
+        total = total + v[i];
+        i = i + 1;
+    }
+
+    liberar(v, n * 8);
+    retornar total;
+}

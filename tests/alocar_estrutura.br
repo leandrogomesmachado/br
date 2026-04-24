@@ -1,0 +1,20 @@
+// esperado: 100
+// Aloca uma estrutura no heap (mmap) e usa atraves de ponteiro.
+estrutura Caixa {
+    inteiro a;
+    inteiro b;
+    inteiro c;
+    inteiro d;
+}
+
+funcao inteiro principal() {
+    estrutura Caixa *p = alocar(32);    // 4 campos * 8 bytes
+    p->a = 10;
+    p->b = 20;
+    p->c = 30;
+    p->d = 40;
+
+    inteiro soma = p->a + p->b + p->c + p->d;       // 100
+    liberar(p, 32);
+    retornar soma;
+}

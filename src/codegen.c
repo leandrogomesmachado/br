@@ -38,6 +38,8 @@ typedef struct {
     int         next_str_id;
 
     int         uses_print_int; /* se qualquer chamada a escrever_inteiro existir */
+    int         uses_alocar;    /* se houver uso de 'alocar' */
+    int         uses_liberar;   /* se houver uso de 'liberar' */
 } CG;
 
 static const char *const ARG_REGS[] = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
@@ -249,6 +251,32 @@ static void gen_builtin_escrever_inteiro(CG *g, const Expr *e)
     fprintf(g->out, "    xorq    %%rax, %%rax\n");
 }
 
+/* Helper compartilhado por 'alocar' e 'liberar': emite chamada para um
+ * simbolo de runtime '__br_<symbol>' com 'narg' argumentos vindos da
+ * propria expressao, seguindo a mesma convencao de alinhamento de pilha
+ * e passagem em registradores que gen_call usa para chamadas comuns. */
+static void gen_runtime_call(CG *g, const Expr *e, const char *runtime_sym, size_t narg)
+{
+    int pad = (g->stack_depth % 16 != 0) ? 8 : 0;
+    if (pad) {
+        fprintf(g->out, "    subq    $8, %%rsp\n");
+        g->stack_depth += 8;
+    }
+    for (size_t i = 0; i < narg; i++) {
+        gen_expr(g, e->as.call.args[i]);
+        emit_push_rax(g);
+    }
+    for (size_t i = narg; i > 0; i--) {
+        emit_pop(g, ARG_REGS[i - 1]);
+    }
+    fprintf(g->out, "    xorl    %%eax, %%eax\n");
+    fprintf(g->out, "    call    %s\n", runtime_sym);
+    if (pad) {
+        fprintf(g->out, "    addq    $8, %%rsp\n");
+        g->stack_depth -= 8;
+    }
+}
+
 static int try_gen_builtin(CG *g, const Expr *e)
 {
     const char *name = e->as.call.name;
@@ -262,6 +290,16 @@ static int try_gen_builtin(CG *g, const Expr *e)
     }
     if (strcmp(name, "escrever_inteiro") == 0) {
         gen_builtin_escrever_inteiro(g, e);
+        return 1;
+    }
+    if (strcmp(name, "alocar") == 0) {
+        g->uses_alocar = 1;
+        gen_runtime_call(g, e, "__br_alocar", 1);
+        return 1;
+    }
+    if (strcmp(name, "liberar") == 0) {
+        g->uses_liberar = 1;
+        gen_runtime_call(g, e, "__br_liberar", 2);
         return 1;
     }
     return 0;
@@ -653,6 +691,44 @@ static void emit_runtime_print_int(FILE *out)
         "    ret\n");
 }
 
+/* __br_alocar(rdi = numero de bytes):
+ *   invoca a syscall mmap(NULL, bytes, PROT_READ|PROT_WRITE,
+ *                          MAP_PRIVATE|MAP_ANONYMOUS, -1, 0)
+ *   Retorna em %rax o ponteiro recebido do kernel; em caso de falha, mmap
+ *   retorna -1 (encarado pelo programa BR como ponteiro invalido). Nao usa
+ *   libc. Observacao: o 4o argumento de uma syscall vai em %r10, nao em
+ *   %rcx (que e' clobbered pelo proprio 'syscall' para salvar %rip). */
+static void emit_runtime_alocar(FILE *out)
+{
+    fprintf(out,
+        "    .globl  __br_alocar\n"
+        "    .type   __br_alocar, @function\n"
+        "__br_alocar:\n"
+        "    movq    %%rdi, %%rsi\n"            /* length */
+        "    xorl    %%edi, %%edi\n"            /* addr   = NULL */
+        "    movl    $3, %%edx\n"               /* prot   = PROT_READ|PROT_WRITE */
+        "    movl    $0x22, %%r10d\n"           /* flags  = MAP_PRIVATE|MAP_ANONYMOUS */
+        "    movq    $-1, %%r8\n"               /* fd     = -1 */
+        "    xorl    %%r9d, %%r9d\n"            /* offset = 0 */
+        "    movl    $9, %%eax\n"               /* SYS_mmap */
+        "    syscall\n"
+        "    ret\n");
+}
+
+/* __br_liberar(rdi = endereco, rsi = numero de bytes):
+ *   invoca munmap(addr, length). Retorna 0 em sucesso ou -1 em erro,
+ *   diretamente da syscall em %rax. */
+static void emit_runtime_liberar(FILE *out)
+{
+    fprintf(out,
+        "    .globl  __br_liberar\n"
+        "    .type   __br_liberar, @function\n"
+        "__br_liberar:\n"
+        "    movl    $11, %%eax\n"              /* SYS_munmap */
+        "    syscall\n"
+        "    ret\n");
+}
+
 /* ---------------------------- entrada -------------------------------- */
 
 static void emit_rodata(CG *g)
@@ -680,6 +756,8 @@ void codegen_emit(FILE *out, const Program *prog)
         .out = out, .func_name = NULL, .label_id = 0, .stack_depth = 0,
         .strs = NULL, .nstrs = 0, .strs_cap = 0, .next_str_id = 0,
         .uses_print_int = 0,
+        .uses_alocar    = 0,
+        .uses_liberar   = 0,
     };
 
     fprintf(out, "# Gerado por brc v0.0.1a\n");
@@ -691,6 +769,12 @@ void codegen_emit(FILE *out, const Program *prog)
 
     if (g.uses_print_int) {
         emit_runtime_print_int(out);
+    }
+    if (g.uses_alocar) {
+        emit_runtime_alocar(out);
+    }
+    if (g.uses_liberar) {
+        emit_runtime_liberar(out);
     }
 
     /* _start: chama principal e encerra via syscall exit(rax). */
