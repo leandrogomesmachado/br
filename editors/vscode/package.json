@@ -1,0 +1,48 @@
+{
+    "name": "br-language",
+    "displayName": "BR Language",
+    "description": "Destaque de sintaxe e configuracao editorial para a linguagem BR (Portugues do Brasil sem acentos, estilo C).",
+    "version": "0.0.1",
+    "publisher": "leandrogomesmachado",
+    "license": "GPL-3.0-only",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/leandrogomesmachado/br.git",
+        "directory": "editors/vscode"
+    },
+    "engines": {
+        "vscode": "^1.70.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "keywords": [
+        "br",
+        "brc",
+        "portugues",
+        "systems programming"
+    ],
+    "contributes": {
+        "languages": [
+            {
+                "id": "br",
+                "aliases": [
+                    "BR",
+                    "br"
+                ],
+                "extensions": [
+                    ".br",
+                    ".brh"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "br",
+                "scopeName": "source.br",
+                "path": "./syntaxes/br.tmLanguage.json"
+            }
+        ]
+    }
+}

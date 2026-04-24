@@ -20,7 +20,7 @@ OBJS     := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SRCS))
 TEST_DIR := tests
 TEST_SRCS := $(wildcard $(TEST_DIR)/*.br)
 
-.PHONY: all clean test memcheck dirs
+.PHONY: all clean test memcheck dirs vscode-ext vscode-ext-install
 
 all: $(BIN)
 
@@ -52,3 +52,17 @@ memcheck: $(BIN)
 		         || exit 1; \
 	done
 	@echo "memcheck OK"
+
+# Empacota a extensao de VS Code / Windsurf em um .vsix.
+# Requer Node.js instalado; baixa o @vscode/vsce sob demanda via npx.
+VSCODE_EXT_DIR := editors/vscode
+VSCODE_VSIX    := $(VSCODE_EXT_DIR)/br-language-0.0.1.vsix
+
+vscode-ext:
+	@cd $(VSCODE_EXT_DIR) && npx --yes @vscode/vsce package --out br-language-0.0.1.vsix
+	@echo ">>> gerado $(VSCODE_VSIX)"
+
+vscode-ext-install: vscode-ext
+	@code --install-extension $(VSCODE_VSIX) 2>/dev/null \
+	  || windsurf --install-extension $(VSCODE_VSIX) 2>/dev/null \
+	  || echo "Instale manualmente: code --install-extension $(VSCODE_VSIX)"

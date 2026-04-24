@@ -98,12 +98,17 @@ A convencao de chamada seguida e a System V AMD64. Argumentos inteiros sao passa
 ## Estrutura de diretorios
 
 ```
-include/    cabecalhos publicos dos modulos do compilador
-src/        implementacao do compilador em C
-tests/      programas de teste escritos em BR
-scripts/    scripts auxiliares (incluindo o runner de testes)
-build/      objetos intermediarios (ignorado pelo git)
+include/          cabecalhos publicos dos modulos do compilador
+src/              implementacao do compilador em C
+tests/            programas de teste escritos em BR
+scripts/          scripts auxiliares (incluindo o runner de testes)
+editors/vscode/   extensao de syntax highlight para VS Code e Windsurf
+build/            objetos intermediarios (ignorado pelo git)
 ```
+
+## Suporte no editor
+
+Uma extensao para VS Code e Windsurf vive em `editors/vscode/` e oferece destaque de sintaxe, auto-close de pares, indentacao baseada em blocos e reconhecimento das funcoes embutidas. Para instalar localmente durante o desenvolvimento, a forma mais rapida e criar um symlink da pasta para o diretorio de extensoes do editor, conforme explicado no `editors/vscode/README.md`. Alternativamente, o alvo `make vscode-ext` empacota a extensao em um arquivo `.vsix` pronto para instalacao manual. O mesmo `.vsix` funciona tanto em VS Code quanto em Windsurf, ja que este e um fork do VS Code e compartilha o mesmo formato de extensao.
 
 ## Testes
 

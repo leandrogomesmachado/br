@@ -1,0 +1,134 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "BR",
+    "scopeName": "source.br",
+    "fileTypes": [ "br", "brh" ],
+    "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#characters" },
+        { "include": "#numbers" },
+        { "include": "#struct-decl" },
+        { "include": "#func-decl" },
+        { "include": "#keywords-control" },
+        { "include": "#keywords-declaration" },
+        { "include": "#types" },
+        { "include": "#builtins" },
+        { "include": "#func-call" },
+        { "include": "#operators" },
+        { "include": "#punctuation" }
+    ],
+    "repository": {
+        "comments": {
+            "patterns": [
+                {
+                    "name": "comment.line.double-slash.br",
+                    "match": "//.*$"
+                },
+                {
+                    "name": "comment.block.br",
+                    "begin": "/\\*",
+                    "end": "\\*/"
+                }
+            ]
+        },
+        "strings": {
+            "name": "string.quoted.double.br",
+            "begin": "\"",
+            "end": "\"",
+            "patterns": [
+                {
+                    "name": "constant.character.escape.br",
+                    "match": "\\\\[ntr0\\\\'\"]"
+                },
+                {
+                    "name": "invalid.illegal.unknown-escape.br",
+                    "match": "\\\\."
+                }
+            ]
+        },
+        "characters": {
+            "patterns": [
+                {
+                    "name": "constant.character.br",
+                    "match": "'(\\\\[ntr0\\\\'\"])'",
+                    "captures": {
+                        "1": { "name": "constant.character.escape.br" }
+                    }
+                },
+                {
+                    "name": "constant.character.br",
+                    "match": "'[^'\\\\]'"
+                }
+            ]
+        },
+        "numbers": {
+            "name": "constant.numeric.decimal.br",
+            "match": "\\b[0-9]+\\b"
+        },
+        "keywords-control": {
+            "name": "keyword.control.br",
+            "match": "\\b(se|senao|enquanto|para|retornar)\\b"
+        },
+        "keywords-declaration": {
+            "name": "keyword.declaration.br",
+            "match": "\\b(funcao|estrutura)\\b"
+        },
+        "types": {
+            "name": "storage.type.br",
+            "match": "\\b(inteiro|caractere|vazio)\\b"
+        },
+        "builtins": {
+            "name": "support.function.builtin.br",
+            "match": "\\b(escrever_texto|escrever_inteiro|escrever_caractere)\\b"
+        },
+        "struct-decl": {
+            "match": "\\b(estrutura)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+            "captures": {
+                "1": { "name": "keyword.declaration.struct.br" },
+                "2": { "name": "entity.name.type.br" }
+            }
+        },
+        "func-decl": {
+            "match": "\\b(funcao)\\s+(inteiro|caractere|vazio)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+            "captures": {
+                "1": { "name": "keyword.declaration.function.br" },
+                "2": { "name": "storage.type.br" },
+                "3": { "name": "entity.name.function.br" }
+            }
+        },
+        "func-call": {
+            "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+            "captures": {
+                "1": { "name": "entity.name.function.br" }
+            }
+        },
+        "operators": {
+            "patterns": [
+                {
+                    "name": "keyword.operator.logical.br",
+                    "match": "&&|\\|\\||!(?!=)"
+                },
+                {
+                    "name": "keyword.operator.comparison.br",
+                    "match": "==|!=|<=|>=|<|>"
+                },
+                {
+                    "name": "keyword.operator.assignment.br",
+                    "match": "="
+                },
+                {
+                    "name": "keyword.operator.arithmetic.br",
+                    "match": "[+\\-*/%]"
+                }
+            ]
+        },
+        "punctuation": {
+            "patterns": [
+                { "name": "punctuation.terminator.statement.br", "match": ";" },
+                { "name": "punctuation.separator.comma.br",       "match": "," },
+                { "name": "punctuation.accessor.br",              "match": "\\." }
+            ]
+        }
+    }
+}

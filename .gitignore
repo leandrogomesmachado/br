@@ -17,6 +17,10 @@ tests/*.diff
 .vscode/
 .idea/
 
+# Artefatos de empacotamento da extensao VS Code / Windsurf
+editors/vscode/node_modules/
+editors/vscode/*.vsix
+
 # SO
 .DS_Store
 Thumbs.db
