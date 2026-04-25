@@ -256,6 +256,12 @@ static void resolve_expr(RCtx *c, Expr *e)
         case EXPR_INT_LIT:
             e->eval_type = tY_int();
             break;
+        case EXPR_NULL:
+            /* 'nulo' tem tipo 'vazio *', um ponteiro generico que sera
+             * compativel com qualquer outro tipo de ponteiro nas regras
+             * de typecheck implementadas mais adiante. */
+            e->eval_type = br_type_pointer(BR_BASE_VAZIO, 1);
+            break;
         case EXPR_STR_LIT:
             /* Literais de string so sao aceitaveis como argumento direto
              * de 'escrever_texto'. Essa validacao e' aplicada em EXPR_CALL. */
@@ -561,6 +567,15 @@ static void resolve_stmt(RCtx *c, Stmt *s)
         case STMT_WHILE:
             resolve_expr(c, s->as.while_s.cond);
             resolve_stmt(c, s->as.while_s.body);
+            break;
+        case STMT_SWITCH:
+            resolve_expr(c, s->as.switch_s.expr);
+            for (size_t i = 0; i < s->as.switch_s.ncases; i++) {
+                resolve_stmt(c, s->as.switch_s.cases[i].body);
+            }
+            if (s->as.switch_s.default_stmt) {
+                resolve_stmt(c, s->as.switch_s.default_stmt);
+            }
             break;
     }
 }

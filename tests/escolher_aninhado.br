@@ -1,0 +1,26 @@
+// esperado: 21
+// 'escolher' aninhado dentro de outro 'escolher'.
+funcao inteiro despachar(inteiro a, inteiro b) {
+    escolher (a) {
+        caso 1: {
+            escolher (b) {
+                caso 1: retornar 11;
+                caso 2: retornar 12;
+                senao:  retornar 10;
+            }
+        }
+        caso 2: {
+            escolher (b) {
+                caso 1: retornar 21;
+                caso 2: retornar 22;
+                senao:  retornar 20;
+            }
+        }
+        senao: retornar 0;
+    }
+    retornar 0;
+}
+
+funcao inteiro principal() {
+    retornar despachar(2, 1);
+}

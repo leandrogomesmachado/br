@@ -1,0 +1,28 @@
+// esperado: 7
+// Compara ponteiro com 'nulo' e usa 'nulo' como sentinela de fim de lista.
+estrutura No {
+    inteiro valor;
+    estrutura No *prox;
+}
+
+funcao inteiro tamanho_lista(estrutura No *cab) {
+    inteiro n = 0;
+    estrutura No *p = cab;
+    enquanto (p != nulo) {
+        n = n + 1;
+        p = p->prox;
+    }
+    retornar n;
+}
+
+funcao inteiro principal() {
+    estrutura No a;  estrutura No b;  estrutura No c;
+    estrutura No d;  estrutura No e;  estrutura No f;
+    estrutura No g;
+    a.prox = &b;  b.prox = &c;  c.prox = &d;
+    d.prox = &e;  e.prox = &f;  f.prox = &g;
+    g.prox = nulo;       // sentinela: marca fim da lista
+    a.valor = 0; b.valor = 0; c.valor = 0; d.valor = 0;
+    e.valor = 0; f.valor = 0; g.valor = 0;
+    retornar tamanho_lista(&a);          // 7
+}

@@ -20,6 +20,7 @@ typedef enum {
     TK_LBRACK,       /* [ */
     TK_RBRACK,       /* ] */
     TK_SEMI,         /* ; */
+    TK_COLON,        /* : */
     TK_COMMA,        /* , */
     TK_DOT,          /* . */
 
@@ -56,7 +57,11 @@ typedef enum {
     TK_KW_ENQUANTO,  /* enquanto */
     TK_KW_PARA,      /* para */
     TK_KW_RETORNAR,  /* retornar */
-    TK_KW_ESTRUTURA  /* estrutura */
+    TK_KW_ESTRUTURA, /* estrutura */
+    TK_KW_NULO,      /* nulo (ponteiro nulo) */
+    TK_KW_TAMANHO_DE,/* tamanho_de(tipo) */
+    TK_KW_ESCOLHER,  /* escolher (switch) */
+    TK_KW_CASO,      /* caso */
 } TokenKind;
 
 typedef struct {

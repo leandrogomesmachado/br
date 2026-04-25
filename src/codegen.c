@@ -346,6 +346,9 @@ static void gen_expr(CG *g, const Expr *e)
         case EXPR_INT_LIT:
             fprintf(g->out, "    movq    $%lld, %%rax\n", e->as.int_lit);
             break;
+        case EXPR_NULL:
+            fprintf(g->out, "    xorl    %%eax, %%eax\n");
+            break;
         case EXPR_STR_LIT:
             /* O resolver garante que so chegamos aqui se a string nao
              * estiver no contexto de 'escrever_texto'. Se ainda assim
@@ -598,6 +601,50 @@ static void gen_stmt(CG *g, const Stmt *s)
             gen_stmt(g, s->as.while_s.body);
             fprintf(g->out, "    jmp     .L%d\n", l_begin);
             fprintf(g->out, ".L%d:\n", l_end);
+            break;
+        }
+        case STMT_SWITCH: {
+            /* Estrategia: avalia 'expr' uma vez em %rax, depois compara
+             * sucessivamente contra cada valor de caso e salta para o
+             * label correspondente. Sem fall-through: cada corpo termina
+             * em jmp para o fim do escolher. Caso nenhum case combine,
+             * salta para o label do 'senao' (ou para o fim se nao houver).
+             *
+             * Com numero pequeno de casos, esta sequencia linear de
+             * comparacoes e' simples e gera codigo correto; uma versao
+             * futura pode optar por jump-table quando os valores forem
+             * densos. */
+            size_t n = s->as.switch_s.ncases;
+            int l_end     = new_label(g);
+            int l_default = s->as.switch_s.default_stmt ? new_label(g) : l_end;
+            int *l_cases  = NULL;
+            if (n > 0) {
+                l_cases = (int *)br_xcalloc(n, sizeof(int));
+                for (size_t i = 0; i < n; i++) {
+                    l_cases[i] = new_label(g);
+                }
+            }
+
+            gen_expr(g, s->as.switch_s.expr);
+            for (size_t i = 0; i < n; i++) {
+                fprintf(g->out, "    cmpq    $%lld, %%rax\n",
+                        s->as.switch_s.cases[i].value);
+                fprintf(g->out, "    je      .L%d\n", l_cases[i]);
+            }
+            fprintf(g->out, "    jmp     .L%d\n", l_default);
+
+            for (size_t i = 0; i < n; i++) {
+                fprintf(g->out, ".L%d:\n", l_cases[i]);
+                gen_stmt(g, s->as.switch_s.cases[i].body);
+                fprintf(g->out, "    jmp     .L%d\n", l_end);
+            }
+            if (s->as.switch_s.default_stmt) {
+                fprintf(g->out, ".L%d:\n", l_default);
+                gen_stmt(g, s->as.switch_s.default_stmt);
+                fprintf(g->out, "    jmp     .L%d\n", l_end);
+            }
+            fprintf(g->out, ".L%d:\n", l_end);
+            free(l_cases);
             break;
         }
     }

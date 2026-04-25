@@ -1,0 +1,12 @@
+// esperado: 99
+// 'senao' como caso default quando nenhum 'caso' bate.
+funcao inteiro principal() {
+    inteiro x = 7;
+    inteiro r = 0;
+    escolher (x) {
+        caso 1: r = 10;
+        caso 2: r = 20;
+        senao:  r = 99;
+    }
+    retornar r;
+}

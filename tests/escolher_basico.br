@@ -1,0 +1,16 @@
+// esperado: 30
+// 'escolher' sem fall-through: cada caso e' isolado.
+funcao inteiro classificar(inteiro x) {
+    inteiro r = 0;
+    escolher (x) {
+        caso 1: r = 10;
+        caso 2: r = 20;
+        caso 3: r = 30;
+        senao:  r = 99;
+    }
+    retornar r;
+}
+
+funcao inteiro principal() {
+    retornar classificar(3);
+}

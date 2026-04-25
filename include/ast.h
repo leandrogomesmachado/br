@@ -84,6 +84,7 @@ typedef enum {
 typedef enum {
     EXPR_INT_LIT,
     EXPR_STR_LIT,
+    EXPR_NULL,       /* literal 'nulo': ponteiro 'vazio *' valor zero */
     EXPR_VAR,
     EXPR_INDEX,      /* v[i] */
     EXPR_FIELD,      /* p.campo */
@@ -169,7 +170,8 @@ typedef enum {
     STMT_EXPR,
     STMT_BLOCK,
     STMT_IF,
-    STMT_WHILE
+    STMT_WHILE,
+    STMT_SWITCH        /* escolher (expr) { caso V: stmt; ... senao: stmt; } */
 } StmtKind;
 
 typedef struct Stmt Stmt;
@@ -216,8 +218,26 @@ struct Stmt {
             Expr *cond;
             Stmt *body;
         } while_s;
+
+        /* STMT_SWITCH: cada SwitchCase tem um valor inteiro literal (validado
+         * em parse_time) e um corpo. Sem fall-through: cada caso e' um bloco
+         * isolado terminando em jmp para o fim. 'default_stmt' pode ser NULL
+         * (compilador apenas pula para o fim quando nenhum caso casa). */
+        struct {
+            Expr             *expr;       /* expressao avaliada uma vez */
+            struct SwitchCase *cases;     /* vetor alocado */
+            size_t            ncases;
+            Stmt             *default_stmt;
+        } switch_s;
     } as;
 };
+
+typedef struct SwitchCase {
+    long long value;       /* valor literal do caso */
+    Stmt     *body;
+    int       line;
+    int       col;
+} SwitchCase;
 
 /* Declaracao de parametro formal de funcao. */
 typedef struct {
@@ -266,6 +286,7 @@ typedef struct {
 /* Construtores de expressoes (alocam com malloc). */
 Expr *ast_expr_int_lit(long long v, int line, int col);
 Expr *ast_expr_str_lit(char *data_owned, size_t len, int line, int col);
+Expr *ast_expr_null(int line, int col);
 Expr *ast_expr_var(const char *name, size_t name_len, int line, int col);
 Expr *ast_expr_index(const char *name, size_t name_len, Expr *index, int line, int col);
 Expr *ast_expr_field(const char *var_name, size_t var_len,
@@ -286,6 +307,8 @@ Stmt *ast_stmt_expr(Expr *e, int line, int col);
 Stmt *ast_stmt_block(Block body, int line, int col);
 Stmt *ast_stmt_if(Expr *cond, Stmt *then_branch, Stmt *else_branch, int line, int col);
 Stmt *ast_stmt_while(Expr *cond, Stmt *body, int line, int col);
+Stmt *ast_stmt_switch(Expr *expr, SwitchCase *cases, size_t ncases,
+                      Stmt *default_stmt, int line, int col);
 
 void  ast_block_init(Block *b);
 void  ast_block_append(Block *b, Stmt *s);

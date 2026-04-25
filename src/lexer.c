@@ -22,6 +22,10 @@ static const Keyword KEYWORDS[] = {
     {"para",       TK_KW_PARA},
     {"retornar",   TK_KW_RETORNAR},
     {"estrutura",  TK_KW_ESTRUTURA},
+    {"nulo",       TK_KW_NULO},
+    {"tamanho_de", TK_KW_TAMANHO_DE},
+    {"escolher",   TK_KW_ESCOLHER},
+    {"caso",       TK_KW_CASO},
 };
 
 void lexer_init(Lexer *lx, const char *src, const char *path)
@@ -256,6 +260,7 @@ Token lexer_next(Lexer *lx)
         case '[': return make_tok(TK_LBRACK,  start, 1, start_line, start_col);
         case ']': return make_tok(TK_RBRACK,  start, 1, start_line, start_col);
         case ';': return make_tok(TK_SEMI,    start, 1, start_line, start_col);
+        case ':': return make_tok(TK_COLON,   start, 1, start_line, start_col);
         case ',': return make_tok(TK_COMMA,   start, 1, start_line, start_col);
         case '.': return make_tok(TK_DOT,     start, 1, start_line, start_col);
         case '+': return make_tok(TK_PLUS,    start, 1, start_line, start_col);
@@ -304,6 +309,7 @@ const char *token_kind_name(TokenKind k)
         case TK_LBRACK:       return "'['";
         case TK_RBRACK:       return "']'";
         case TK_SEMI:         return "';'";
+        case TK_COLON:        return "':'";
         case TK_COMMA:        return "','";
         case TK_DOT:          return "'.'";
         case TK_PLUS:         return "'+'";
@@ -333,6 +339,10 @@ const char *token_kind_name(TokenKind k)
         case TK_KW_PARA:      return "'para'";
         case TK_KW_RETORNAR:  return "'retornar'";
         case TK_KW_ESTRUTURA: return "'estrutura'";
+        case TK_KW_NULO:      return "'nulo'";
+        case TK_KW_TAMANHO_DE:return "'tamanho_de'";
+        case TK_KW_ESCOLHER:  return "'escolher'";
+        case TK_KW_CASO:      return "'caso'";
     }
     return "<?>";
 }

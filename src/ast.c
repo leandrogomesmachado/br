@@ -15,6 +15,11 @@ static Expr *alloc_expr(ExprKind kind, int line, int col)
     return e;
 }
 
+Expr *ast_expr_null(int line, int col)
+{
+    return alloc_expr(EXPR_NULL, line, col);
+}
+
 Expr *ast_expr_int_lit(long long v, int line, int col)
 {
     Expr *e = alloc_expr(EXPR_INT_LIT, line, col);
@@ -167,6 +172,17 @@ Stmt *ast_stmt_while(Expr *cond, Stmt *body, int line, int col)
     return s;
 }
 
+Stmt *ast_stmt_switch(Expr *expr, SwitchCase *cases, size_t ncases,
+                      Stmt *default_stmt, int line, int col)
+{
+    Stmt *s = alloc_stmt(STMT_SWITCH, line, col);
+    s->as.switch_s.expr         = expr;
+    s->as.switch_s.cases        = cases;
+    s->as.switch_s.ncases       = ncases;
+    s->as.switch_s.default_stmt = default_stmt;
+    return s;
+}
+
 /* -------------------------------- bloco ------------------------------- */
 
 void ast_block_init(Block *b)
@@ -266,6 +282,7 @@ void ast_free_expr(Expr *e)
     }
     switch (e->kind) {
         case EXPR_INT_LIT:
+        case EXPR_NULL:
             break;
         case EXPR_STR_LIT:
             free(e->as.str_lit.data);
@@ -334,6 +351,14 @@ void ast_free_stmt(Stmt *s)
         case STMT_WHILE:
             ast_free_expr(s->as.while_s.cond);
             ast_free_stmt(s->as.while_s.body);
+            break;
+        case STMT_SWITCH:
+            ast_free_expr(s->as.switch_s.expr);
+            for (size_t i = 0; i < s->as.switch_s.ncases; i++) {
+                ast_free_stmt(s->as.switch_s.cases[i].body);
+            }
+            free(s->as.switch_s.cases);
+            ast_free_stmt(s->as.switch_s.default_stmt);
             break;
     }
     free(s);

@@ -1,0 +1,16 @@
+// esperado: 5
+// Casos com sinal negativo. -2 deve casar e somar 1+2+2 = 5.
+funcao inteiro classificar(inteiro v) {
+    escolher (v) {
+        caso -2: retornar 5;
+        caso -1: retornar 4;
+        caso  0: retornar 3;
+        caso  1: retornar 2;
+        senao:   retornar 1;
+    }
+    retornar 0;          // unreachable, mas legitimo na sintaxe
+}
+
+funcao inteiro principal() {
+    retornar classificar(-2);
+}

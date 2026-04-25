@@ -177,6 +177,44 @@ static Expr *parse_primary(Parser *p)
         expect(p, TK_RPAREN);
         return e;
     }
+    if (t.kind == TK_KW_NULO) {
+        advance(p);
+        return ast_expr_null(t.line, t.col);
+    }
+    if (t.kind == TK_KW_TAMANHO_DE) {
+        /* tamanho_de(tipo) -> EXPR_INT_LIT com o tamanho em bytes do tipo.
+         * Como todos os escalares e ponteiros ocupam 8 bytes nesta versao,
+         * a unica situacao com tamanho variavel e' 'estrutura Nome' (sem
+         * '*'), em que o resultado e' nfields * 8. Para 'estrutura Nome *'
+         * (qualquer profundidade), e' 8 como qualquer outro ponteiro. */
+        advance(p);                              /* consome 'tamanho_de' */
+        expect(p, TK_LPAREN);
+        long long sz = 8;
+        if (p->cur.kind == TK_KW_ESTRUTURA) {
+            int sl = p->cur.line, sc = p->cur.col;
+            advance(p);
+            Token sn = expect(p, TK_IDENT);
+            const StructDecl *sd =
+                ast_program_find_struct(p->prog, sn.lexeme, sn.length);
+            if (!sd) {
+                br_fatal_at(p->path, sn.line, sn.col,
+                            "estrutura '%.*s' nao declarada",
+                            (int)sn.length, sn.lexeme);
+            }
+            int depth = 0;
+            while (accept(p, TK_STAR)) {
+                depth++;
+            }
+            sz = (depth > 0) ? 8 : (long long)sd->nfields * 8;
+            (void)sl; (void)sc;
+        } else {
+            (void)parse_type(p);                 /* valida e descarta */
+            /* Sempre 8 bytes (escalar ou ponteiro). */
+            sz = 8;
+        }
+        expect(p, TK_RPAREN);
+        return ast_expr_int_lit(sz, t.line, t.col);
+    }
     br_fatal_at(p->path, t.line, t.col,
                 "esperada expressao, encontrado %s",
                 token_kind_name(t.kind));
@@ -494,6 +532,84 @@ static Stmt *parse_if(Parser *p)
     return ast_stmt_if(cond, then_branch, else_branch, line, col);
 }
 
+/* escolher (expr) {
+ *     caso V1: stmt;
+ *     caso V2: stmt;
+ *     ...
+ *     senao:   stmt;       // opcional
+ * }
+ *
+ * Sem fall-through (cada caso e' isolado). Os valores dos casos precisam
+ * ser literais inteiros ou de caractere, decididos em tempo de analise
+ * sintatica. Casos duplicados sao detectados aqui mesmo. */
+static Stmt *parse_switch(Parser *p)
+{
+    int line = p->cur.line, col = p->cur.col;
+    advance(p);                              /* consome 'escolher' */
+    expect(p, TK_LPAREN);
+    Expr *expr = parse_expr(p);
+    expect(p, TK_RPAREN);
+    expect(p, TK_LBRACE);
+
+    SwitchCase *cases = NULL;
+    size_t      ncases = 0, cap = 0;
+    Stmt       *default_stmt = NULL;
+    int         saw_default = 0;
+
+    while (p->cur.kind != TK_RBRACE && p->cur.kind != TK_EOF) {
+        if (p->cur.kind == TK_KW_CASO) {
+            int cl = p->cur.line, cc = p->cur.col;
+            advance(p);
+            /* Aceita apenas literal inteiro (com sinal opcional) como rotulo. */
+            long long sign = 1;
+            if (accept(p, TK_MINUS)) {
+                sign = -1;
+            }
+            Token v = expect(p, TK_INT_LIT);
+            long long value = sign * v.int_val;
+            expect(p, TK_COLON);
+            /* Detecta caso duplicado. */
+            for (size_t i = 0; i < ncases; i++) {
+                if (cases[i].value == value) {
+                    br_fatal_at(p->path, cl, cc,
+                                "valor de 'caso' duplicado: %lld", value);
+                }
+            }
+            Stmt *body = parse_stmt(p);
+            if (ncases == cap) {
+                cap = cap ? cap * 2 : 4;
+                cases = (SwitchCase *)br_xrealloc(cases, cap * sizeof(SwitchCase));
+            }
+            cases[ncases].value = value;
+            cases[ncases].body  = body;
+            cases[ncases].line  = cl;
+            cases[ncases].col   = cc;
+            ncases++;
+        } else if (p->cur.kind == TK_KW_SENAO) {
+            int dl = p->cur.line, dc = p->cur.col;
+            advance(p);
+            expect(p, TK_COLON);
+            if (saw_default) {
+                br_fatal_at(p->path, dl, dc,
+                            "'senao' duplicado dentro de 'escolher'");
+            }
+            default_stmt = parse_stmt(p);
+            saw_default = 1;
+        } else {
+            br_fatal_at(p->path, p->cur.line, p->cur.col,
+                        "esperado 'caso' ou 'senao' dentro de 'escolher', encontrado %s",
+                        token_kind_name(p->cur.kind));
+        }
+    }
+    expect(p, TK_RBRACE);
+
+    if (ncases == 0 && !saw_default) {
+        br_fatal_at(p->path, line, col,
+                    "'escolher' deve ter ao menos um 'caso' ou 'senao'");
+    }
+    return ast_stmt_switch(expr, cases, ncases, default_stmt, line, col);
+}
+
 static Stmt *parse_while(Parser *p)
 {
     int line = p->cur.line, col = p->cur.col;
@@ -631,6 +747,7 @@ static Stmt *parse_stmt(Parser *p)
         case TK_KW_SE:        return parse_if(p);
         case TK_KW_ENQUANTO:  return parse_while(p);
         case TK_KW_PARA:      return parse_for(p);
+        case TK_KW_ESCOLHER:  return parse_switch(p);
         case TK_KW_RETORNAR:  return parse_return(p);
         case TK_KW_INTEIRO:
         case TK_KW_CARACTERE:

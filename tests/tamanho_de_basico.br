@@ -1,0 +1,18 @@
+// esperado: 63
+// 'tamanho_de(tipo)' permite alocar memoria sem hardcode em bytes.
+// Soma 1..10 (=55) e adiciona tamanho_de(inteiro) (=8) -> 63.
+funcao inteiro principal() {
+    inteiro n   = 10;
+    inteiro tam = tamanho_de(inteiro);
+    inteiro *v  = alocar(n * tam);
+
+    inteiro i = 0;
+    enquanto (i < n) { v[i] = i + 1; i = i + 1; }
+
+    inteiro total = 0;
+    i = 0;
+    enquanto (i < n) { total = total + v[i]; i = i + 1; }
+
+    liberar(v, n * tam);
+    retornar total + tam;
+}

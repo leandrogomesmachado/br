@@ -71,7 +71,7 @@ Ao executar, esse programa imprime `ola, mundo!`, uma nova linha, e em seguida `
 
 ## Resumo da sintaxe suportada
 
-As palavras-chave atuais sao `funcao`, `inteiro`, `caractere`, `vazio`, `se`, `senao`, `enquanto`, `para`, `retornar` e `estrutura`, todas com implementacao completa.
+As palavras-chave atuais sao `funcao`, `inteiro`, `caractere`, `vazio`, `se`, `senao`, `enquanto`, `para`, `retornar`, `estrutura`, `nulo`, `tamanho_de`, `escolher` e `caso`, todas com implementacao completa.
 
 O ponto de entrada de todo programa e uma funcao chamada `principal`, que retorna `inteiro` e nao recebe parametros. O valor retornado por ela e o codigo de saida do processo.
 
@@ -84,6 +84,12 @@ Estruturas sao declaradas no nivel do arquivo com `estrutura Nome { tipo campo1;
 Ponteiros sao declarados anexando um ou mais `*` ao tipo base, como em `inteiro *p` ou `caractere **pp`. O operador unario `&` produz o endereco de qualquer lvalue (variavel escalar, elemento de vetor ou campo de estrutura) e o operador unario `*` acessa o valor apontado, tanto em contexto de leitura quanto como lvalue em atribuicao (`*p = x`). Ponteiros tem 8 bytes e podem ser passados como parametros e retornados de funcoes, o que permite implementar, por exemplo, uma funcao `troca(inteiro *a, inteiro *b)` com semantica de passagem por referencia.
 
 A aritmetica de ponteiro segue o modelo de C: `p + n` e `p - n` retornam um ponteiro deslocado em `n` elementos (ou seja, `n * 8` bytes, ja que todo slot nesta versao tem 8 bytes), e a indexacao `p[i]` e' acucar para `*(p + i)`, aceita tanto em leitura quanto em escrita. Combinar dois ponteiros com `+` e' erro, e a subtracao entre ponteiros (ptrdiff) sera adicionada em uma fase posterior. Comparacoes entre dois ponteiros sao validas e emitidas com semantica unsigned, o que viabiliza idioma classico de iteracao por ponteiro do tipo `enquanto (p < fim) { ... p = p + 1; }`. O tipo efetivo dos ponteiros ainda nao e verificado em operacoes de atribuicao e chamada; essa verificacao sera endurecida na fase G.4.
+
+O literal `nulo` representa o ponteiro nulo (valor 0) e tem tipo `vazio *`, sendo compativel com qualquer outro tipo de ponteiro em comparacoes e atribuicoes. Ele e' o idioma padrao para sentinela de fim de lista ou indicador de "ainda nao apontado", como em `cab->prox = nulo;` para o ultimo no de uma lista ligada.
+
+O operador de tempo de compilacao `tamanho_de(tipo)` produz um literal inteiro com o tamanho em bytes do tipo. Como toda variavel ocupa um slot de 8 bytes nesta versao, `tamanho_de(inteiro)`, `tamanho_de(caractere)`, `tamanho_de(inteiro *)` e similares retornam todos `8`. Para uma estrutura por valor, `tamanho_de(estrutura Nome)` retorna `nfields * 8`, o que viabiliza uso ergonomico de `alocar(tamanho_de(estrutura Foo))` sem precisar contar campos manualmente.
+
+O comando `escolher` e' a versao BR de switch sem fall-through: cada `caso` e' um corpo isolado terminado por jmp para o fim do bloco. A sintaxe e' `escolher (expr) { caso V1: stmt; caso V2: stmt; senao: stmt; }`. Os valores dos casos precisam ser literais inteiros (com sinal opcional), validados em tempo de analise sintatica; casos duplicados sao detectados e reportados como erro. `senao` e' opcional e funciona como o ramo default. Diferente do `switch` em C, nao ha comando `break` (cada caso ja sai automaticamente ao final).
 
 O laco `para` segue o modelo classico `para (init; cond; step) corpo`, em que `init` pode ser uma declaracao de variavel (confinada ao escopo do laco), uma expressao ou vazio, e `cond` e `step` sao opcionais. O compilador converte `para` em um bloco contendo `init` seguido de `enquanto (cond) { corpo; step; }`, reutilizando integralmente o codegen do laco `enquanto`.
 

@@ -1,0 +1,21 @@
+// esperado: 100
+// tamanho_de(estrutura X) = nfields * 8 (4 campos = 32 bytes).
+// Aloca uma estrutura sem hardcode de 32, preenche e soma.
+estrutura Caixa {
+    inteiro a;
+    inteiro b;
+    inteiro c;
+    inteiro d;
+}
+
+funcao inteiro principal() {
+    inteiro tam = tamanho_de(estrutura Caixa);   // 32
+    estrutura Caixa *p = alocar(tam);
+    p->a = 10;
+    p->b = 20;
+    p->c = 30;
+    p->d = 40;
+    inteiro soma = p->a + p->b + p->c + p->d;    // 100
+    liberar(p, tam);
+    retornar soma;
+}
