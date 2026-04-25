@@ -1,0 +1,6 @@
+// erro: vetor global nao suportado
+inteiro v[10];
+
+funcao inteiro principal() {
+    retornar 0;
+}

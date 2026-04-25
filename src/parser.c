@@ -898,6 +898,121 @@ static StructDecl *parse_struct_decl(Parser *p)
     return s;
 }
 
+/* Decide se 'estrutura' no topo abre uma struct decl ou uma global de tipo
+ * 'estrutura Nome *...'. A diferenca esta no token apos 'IDENT': '{' inicia
+ * a definicao da estrutura; '*' (uma ou mais) indica ponteiro para
+ * estrutura, seguido do nome da global. Faz-se isso por lookahead manual,
+ * ja que o parser nao tem peek-N. Como 'estrutura Nome IDENT' (sem '*') no
+ * topo nao e' permitido (nao ha global de struct por valor), so' precisamos
+ * distinguir LBRACE vs STAR. */
+static int top_estrutura_is_global(Parser *p)
+{
+    /* p->cur e' TK_KW_ESTRUTURA. Olha 1 e 2 tokens a frente sem consumir. */
+    Token saved_cur = p->cur;
+    Lexer saved_lx  = *p->lx;
+    advance(p);                /* consome 'estrutura' */
+    if (p->cur.kind != TK_IDENT) {
+        /* Erro sera reportado por parse_struct_decl/parse_global_decl
+         * adiante; por padrao, deixa como struct decl. */
+        *p->lx  = saved_lx;
+        p->cur  = saved_cur;
+        return 0;
+    }
+    advance(p);                /* consome IDENT */
+    int is_global = (p->cur.kind == TK_STAR);
+    *p->lx  = saved_lx;
+    p->cur  = saved_cur;
+    return is_global;
+}
+
+/* Aceita um literal aceitavel como inicializador de global e devolve uma
+ * Expr ja com 'eval_type' preenchido (para que o resolver possa apenas
+ * fazer typecheck). Aceitos: literal inteiro (com sinal opcional), literal
+ * de caractere, literal de string, e 'nulo'. */
+static Expr *parse_global_initializer(Parser *p)
+{
+    int line = p->cur.line, col = p->cur.col;
+    int neg = 0;
+    if (p->cur.kind == TK_MINUS) {
+        neg = 1;
+        advance(p);
+    }
+    if (p->cur.kind == TK_INT_LIT) {
+        long long v = p->cur.int_val;
+        advance(p);
+        if (neg) { v = -v; }
+        Expr *e = ast_expr_int_lit(v, line, col);
+        e->eval_type = br_type_scalar(BR_BASE_INTEIRO);
+        return e;
+    }
+    if (neg) {
+        br_fatal_at(p->path, line, col,
+                    "'-' so e' permitido antes de literal inteiro em inicializador de global");
+    }
+    if (p->cur.kind == TK_STR_LIT) {
+        /* Reaproveita decodificacao de escapes do lexeme: copia bytes
+         * decodificados para um buffer alocado e cria EXPR_STR_LIT. */
+        Token t = p->cur;
+        advance(p);
+        size_t n = t.length >= 2 ? t.length - 2 : 0;
+        char *buf = (char *)br_xmalloc(n + 1);
+        size_t k = 0;
+        for (size_t i = 1; i + 1 < t.length; i++) {
+            char ch = t.lexeme[i];
+            if (ch == '\\' && i + 2 < t.length) {
+                char esc = t.lexeme[++i];
+                switch (esc) {
+                    case 'n':  buf[k++] = '\n'; break;
+                    case 't':  buf[k++] = '\t'; break;
+                    case 'r':  buf[k++] = '\r'; break;
+                    case '0':  buf[k++] = '\0'; break;
+                    case '\\': buf[k++] = '\\'; break;
+                    case '\'': buf[k++] = '\''; break;
+                    case '"':  buf[k++] = '"';  break;
+                    default:   buf[k++] = esc;  break;
+                }
+            } else {
+                buf[k++] = ch;
+            }
+        }
+        buf[k] = '\0';
+        Expr *e = ast_expr_str_lit(buf, k, line, col);
+        e->eval_type = br_type_pointer(BR_BASE_CARACTERE, 1);
+        return e;
+    }
+    if (p->cur.kind == TK_KW_NULO) {
+        advance(p);
+        Expr *e = ast_expr_null(line, col);
+        e->eval_type = br_type_pointer(BR_BASE_VAZIO, 1);
+        return e;
+    }
+    br_fatal_at(p->path, line, col,
+                "inicializador de variavel global deve ser literal inteiro, caractere, string ou 'nulo'");
+    return NULL;       /* nao alcancado */
+}
+
+/* tipo IDENT [ '=' literal ] ';'  no nivel do arquivo. */
+static GlobalDecl *parse_global_decl(Parser *p)
+{
+    int line = p->cur.line, col = p->cur.col;
+    BrType t = parse_type(p);
+    if (br_type_is_vazio(t)) {
+        br_fatal_at(p->path, line, col,
+                    "variavel global nao pode ter tipo 'vazio'");
+    }
+    Token name = expect(p, TK_IDENT);
+    if (p->cur.kind == TK_LBRACK) {
+        br_fatal_at(p->path, p->cur.line, p->cur.col,
+                    "vetor global nao suportado nesta versao");
+    }
+    Expr *init = NULL;
+    if (accept(p, TK_ASSIGN)) {
+        init = parse_global_initializer(p);
+    }
+    expect(p, TK_SEMI);
+    return ast_global_decl_new(t, name.lexeme, name.length, init, line, col);
+}
+
 Program parser_parse_program(Parser *p)
 {
     Program prog;
@@ -905,8 +1020,18 @@ Program parser_parse_program(Parser *p)
     p->prog = &prog;
     while (p->cur.kind != TK_EOF) {
         if (p->cur.kind == TK_KW_ESTRUTURA) {
-            /* parse_struct_decl ja adiciona a estrutura em p->prog. */
-            (void)parse_struct_decl(p);
+            if (top_estrutura_is_global(p)) {
+                GlobalDecl *g = parse_global_decl(p);
+                ast_program_add_global(&prog, g);
+            } else {
+                /* parse_struct_decl ja adiciona a estrutura em p->prog. */
+                (void)parse_struct_decl(p);
+            }
+        } else if (p->cur.kind == TK_KW_INTEIRO ||
+                   p->cur.kind == TK_KW_CARACTERE ||
+                   p->cur.kind == TK_KW_VAZIO) {
+            GlobalDecl *g = parse_global_decl(p);
+            ast_program_add_global(&prog, g);
         } else {
             FuncDecl *f = parse_func(p);
             ast_program_add_func(&prog, f);

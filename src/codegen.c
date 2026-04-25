@@ -45,6 +45,39 @@ typedef struct {
 
 static const char *const ARG_REGS[] = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
 
+/* G.6: helpers para emissao de acessos a slots de variavel locais ou
+ * globais, com a mesma ABI logica - basta ajustar a forma de enderecamento
+ * (RBP-relativo para locais, RIP-relativo + simbolo para globais). */
+static void emit_load_slot(CG *g, const char *reg, int is_global,
+                           const char *name, int rbp_off)
+{
+    if (is_global) {
+        fprintf(g->out, "    movq    __br_g_%s(%%rip), %%%s\n", name, reg);
+    } else {
+        fprintf(g->out, "    movq    %d(%%rbp), %%%s\n", rbp_off, reg);
+    }
+}
+
+static void emit_store_slot(CG *g, const char *reg, int is_global,
+                            const char *name, int rbp_off)
+{
+    if (is_global) {
+        fprintf(g->out, "    movq    %%%s, __br_g_%s(%%rip)\n", reg, name);
+    } else {
+        fprintf(g->out, "    movq    %%%s, %d(%%rbp)\n", reg, rbp_off);
+    }
+}
+
+static void emit_lea_slot(CG *g, const char *reg, int is_global,
+                          const char *name, int rbp_off)
+{
+    if (is_global) {
+        fprintf(g->out, "    leaq    __br_g_%s(%%rip), %%%s\n", name, reg);
+    } else {
+        fprintf(g->out, "    leaq    %d(%%rbp), %%%s\n", rbp_off, reg);
+    }
+}
+
 static int new_label(CG *g)
 {
     return g->label_id++;
@@ -349,6 +382,18 @@ static int try_gen_builtin(CG *g, const Expr *e)
         gen_runtime_call(g, e, "__br_escrever_byte", 3);
         return 1;
     }
+    if (strcmp(name, "bifurcar") == 0) {
+        gen_runtime_call(g, e, "__br_bifurcar", 0);
+        return 1;
+    }
+    if (strcmp(name, "executar") == 0) {
+        gen_runtime_call(g, e, "__br_executar", 2);
+        return 1;
+    }
+    if (strcmp(name, "aguardar") == 0) {
+        gen_runtime_call(g, e, "__br_aguardar", 1);
+        return 1;
+    }
     return 0;
 }
 
@@ -405,15 +450,18 @@ static void gen_expr(CG *g, const Expr *e)
             break;
         }
         case EXPR_VAR:
-            fprintf(g->out, "    movq    %d(%%rbp), %%rax\n", e->as.var.rbp_offset);
+            emit_load_slot(g, "rax", e->as.var.is_global,
+                           e->as.var.name, e->as.var.rbp_offset);
             break;
         case EXPR_INDEX: {
             if (e->as.index.via_pointer) {
-                /* p[i] para ponteiro: carrega p, soma i*8, dereferencia. */
+                /* p[i] para ponteiro: carrega p, soma i*8, dereferencia.
+                 * Quando p e' global, p vem de __br_g_<name>(%rip). */
                 gen_expr(g, e->as.index.index);
                 fprintf(g->out, "    shlq    $3, %%rax\n");
-                fprintf(g->out, "    addq    %d(%%rbp), %%rax\n",
-                        e->as.index.base_offset);
+                emit_load_slot(g, "rdx", e->as.index.is_global,
+                               e->as.index.name, e->as.index.base_offset);
+                fprintf(g->out, "    addq    %%rdx, %%rax\n");
                 fprintf(g->out, "    movq    (%%rax), %%rax\n");
             } else {
                 /* Vetor fixo: endereco = rbp + base_offset + rax*8. */
@@ -425,10 +473,10 @@ static void gen_expr(CG *g, const Expr *e)
         }
         case EXPR_FIELD:
             if (e->as.field.via_pointer) {
-                /* p->campo: carrega 'p' do slot, soma o offset do campo
-                 * dentro da estrutura, e dereferencia. */
-                fprintf(g->out, "    movq    %d(%%rbp), %%rax\n",
-                        e->as.field.rbp_offset);
+                /* p->campo: carrega 'p' do slot (local ou global), soma
+                 * o offset do campo dentro da estrutura, e dereferencia. */
+                emit_load_slot(g, "rax", e->as.field.is_global,
+                               e->as.field.var_name, e->as.field.rbp_offset);
                 fprintf(g->out, "    movq    %d(%%rax), %%rax\n",
                         e->as.field.field_byte_offset);
             } else {
@@ -440,10 +488,11 @@ static void gen_expr(CG *g, const Expr *e)
         case EXPR_ASSIGN: {
             const Expr *tgt = e->as.assign.target;
             if (tgt->kind == EXPR_VAR) {
-                /* Simples: avalia o valor e armazena no slot escalar. */
+                /* Simples: avalia o valor e armazena no slot escalar
+                 * (RBP-relativo para local, RIP-relativo para global). */
                 gen_expr(g, e->as.assign.value);
-                fprintf(g->out, "    movq    %%rax, %d(%%rbp)\n",
-                        tgt->as.var.rbp_offset);
+                emit_store_slot(g, "rax", tgt->as.var.is_global,
+                                tgt->as.var.name, tgt->as.var.rbp_offset);
             } else if (tgt->kind == EXPR_INDEX) {
                 /* v[i] = value ou p[i] = value. Em ambos os casos:
                  *   1. avalia 'value' e empilha;
@@ -454,9 +503,10 @@ static void gen_expr(CG *g, const Expr *e)
                 gen_expr(g, tgt->as.index.index);          /* rax = i */
                 if (tgt->as.index.via_pointer) {
                     fprintf(g->out, "    shlq    $3, %%rax\n");
-                    fprintf(g->out, "    addq    %d(%%rbp), %%rax\n",
-                            tgt->as.index.base_offset);
-                    fprintf(g->out, "    movq    %%rax, %%rdx\n");
+                    emit_load_slot(g, "rdx", tgt->as.index.is_global,
+                                   tgt->as.index.name,
+                                   tgt->as.index.base_offset);
+                    fprintf(g->out, "    addq    %%rax, %%rdx\n");
                 } else {
                     fprintf(g->out, "    leaq    %d(%%rbp,%%rax,8), %%rdx\n",
                             tgt->as.index.base_offset);
@@ -466,12 +516,13 @@ static void gen_expr(CG *g, const Expr *e)
             } else if (tgt->kind == EXPR_FIELD) {
                 if (tgt->as.field.via_pointer) {
                     /* p->campo = value. Avalia value, empilha; carrega 'p'
-                     * em rax; soma offset; ponteiro de destino em rdx;
-                     * desempilha value e store. */
+                     * (local ou global); soma offset; ponteiro de destino
+                     * em rdx; desempilha value e store. */
                     gen_expr(g, e->as.assign.value);
                     emit_push_rax(g);
-                    fprintf(g->out, "    movq    %d(%%rbp), %%rax\n",
-                            tgt->as.field.rbp_offset);
+                    emit_load_slot(g, "rax", tgt->as.field.is_global,
+                                   tgt->as.field.var_name,
+                                   tgt->as.field.rbp_offset);
                     fprintf(g->out, "    leaq    %d(%%rax), %%rdx\n",
                             tgt->as.field.field_byte_offset);
                     emit_pop(g, "rax");
@@ -505,25 +556,29 @@ static void gen_expr(CG *g, const Expr *e)
                  * sem percorrer gen_expr do operando (evita o load). */
                 const Expr *op = e->as.unary.operand;
                 if (op->kind == EXPR_VAR) {
-                    fprintf(g->out, "    leaq    %d(%%rbp), %%rax\n",
-                            op->as.var.rbp_offset);
+                    emit_lea_slot(g, "rax", op->as.var.is_global,
+                                  op->as.var.name, op->as.var.rbp_offset);
                 } else if (op->kind == EXPR_FIELD) {
                     if (op->as.field.via_pointer) {
-                        /* &p->campo: carrega p e soma offset (sem deref). */
-                        fprintf(g->out, "    movq    %d(%%rbp), %%rax\n",
-                                op->as.field.rbp_offset);
+                        /* &p->campo: carrega p (local ou global) e soma offset. */
+                        emit_load_slot(g, "rax", op->as.field.is_global,
+                                       op->as.field.var_name,
+                                       op->as.field.rbp_offset);
                         fprintf(g->out, "    leaq    %d(%%rax), %%rax\n",
                                 op->as.field.field_byte_offset);
                     } else {
-                        fprintf(g->out, "    leaq    %d(%%rbp), %%rax\n",
-                                op->as.field.rbp_offset);
+                        emit_lea_slot(g, "rax", 0,
+                                      op->as.field.var_name,
+                                      op->as.field.rbp_offset);
                     }
                 } else if (op->kind == EXPR_INDEX) {
                     gen_expr(g, op->as.index.index);       /* rax = i */
                     if (op->as.index.via_pointer) {
                         fprintf(g->out, "    shlq    $3, %%rax\n");
-                        fprintf(g->out, "    addq    %d(%%rbp), %%rax\n",
-                                op->as.index.base_offset);
+                        emit_load_slot(g, "rdx", op->as.index.is_global,
+                                       op->as.index.name,
+                                       op->as.index.base_offset);
+                        fprintf(g->out, "    addq    %%rdx, %%rax\n");
                     } else {
                         fprintf(g->out, "    leaq    %d(%%rbp,%%rax,8), %%rax\n",
                                 op->as.index.base_offset);
@@ -918,6 +973,53 @@ static void emit_runtime_escrever_byte(FILE *out)
         "    ret\n");
 }
 
+/* G.6: criacao e controle de processos via syscalls Linux. Sao funcoes
+ * minusculas; o resultado retorna em %rax como em qualquer syscall. */
+
+/* __br_bifurcar() -> rax = pid (pai), 0 (filho) ou -errno em erro. */
+static void emit_runtime_bifurcar(FILE *out)
+{
+    fprintf(out,
+        "    .globl  __br_bifurcar\n"
+        "    .type   __br_bifurcar, @function\n"
+        "__br_bifurcar:\n"
+        "    movl    $57, %%eax\n"              /* SYS_fork */
+        "    syscall\n"
+        "    ret\n");
+}
+
+/* __br_executar(rdi=caminho, rsi=argv) -> nao retorna em sucesso;
+ * em erro, retorna -errno em rax. envp e' passado como NULL. */
+static void emit_runtime_executar(FILE *out)
+{
+    fprintf(out,
+        "    .globl  __br_executar\n"
+        "    .type   __br_executar, @function\n"
+        "__br_executar:\n"
+        "    xorl    %%edx, %%edx\n"            /* envp = NULL */
+        "    movl    $59, %%eax\n"              /* SYS_execve */
+        "    syscall\n"
+        "    ret\n");
+}
+
+/* __br_aguardar(rdi=pid) -> rax = pid_filho aguardado | -errno.
+ * O 'status' do filho fica perdido para o programa BR nesta versao
+ * (passamos NULL como wstatus). Suficiente para simples 'fork-exec-wait';
+ * uma versao futura pode expor o status como ponteiro de saida. */
+static void emit_runtime_aguardar(FILE *out)
+{
+    fprintf(out,
+        "    .globl  __br_aguardar\n"
+        "    .type   __br_aguardar, @function\n"
+        "__br_aguardar:\n"
+        "    xorl    %%esi, %%esi\n"            /* wstatus = NULL */
+        "    xorl    %%edx, %%edx\n"            /* options = 0 */
+        "    xorl    %%r10d, %%r10d\n"          /* rusage  = NULL */
+        "    movl    $61, %%eax\n"              /* SYS_wait4 */
+        "    syscall\n"
+        "    ret\n");
+}
+
 /* __br_numero_argumentos() -> rax = argc;
  * __br_argumento(rdi=i)    -> rax = argv[i] (caractere *).
  * Sem checagem de limites: e' responsabilidade do programa BR validar i
@@ -944,6 +1046,40 @@ static void emit_runtime_argv(FILE *out)
 }
 
 /* ---------------------------- entrada -------------------------------- */
+
+/* G.6: emite todas as variaveis globais em .data com inicializadores
+ * literais. Globais sem 'init' sao zero-inicializadas (.quad 0). Strings
+ * literais usadas como init sao registradas em .rodata e referenciadas
+ * pelo seu rotulo .LCstr<N>. */
+static void emit_globals(CG *g, const Program *prog)
+{
+    if (prog->nglobals == 0) {
+        return;
+    }
+    fprintf(g->out, "    .data\n");
+    for (size_t i = 0; i < prog->nglobals; i++) {
+        const GlobalDecl *gd = prog->globals[i];
+        fprintf(g->out, "    .align 8\n");
+        fprintf(g->out, "    .globl  __br_g_%s\n", gd->name);
+        fprintf(g->out, "__br_g_%s:\n", gd->name);
+        const Expr *init = gd->init;
+        if (!init) {
+            fprintf(g->out, "    .quad 0\n");
+        } else if (init->kind == EXPR_INT_LIT) {
+            fprintf(g->out, "    .quad %lld\n", init->as.int_lit);
+        } else if (init->kind == EXPR_NULL) {
+            fprintf(g->out, "    .quad 0\n");
+        } else if (init->kind == EXPR_STR_LIT) {
+            /* Pre-registra a string no pool para que emit_rodata a emita;
+             * o init vira ponteiro para o rotulo .LCstr<id>. */
+            int sid = intern_string(g, init);
+            fprintf(g->out, "    .quad .LCstr%d\n", sid);
+        } else {
+            br_fatal("codegen: inicializador de global tem kind inesperado %d",
+                     (int)init->kind);
+        }
+    }
+}
 
 static void emit_rodata(CG *g)
 {
@@ -1005,6 +1141,9 @@ void codegen_emit(FILE *out, const Program *prog)
     emit_runtime_sair(out);
     emit_runtime_ler_byte(out);
     emit_runtime_escrever_byte(out);
+    emit_runtime_bifurcar(out);
+    emit_runtime_executar(out);
+    emit_runtime_aguardar(out);
     emit_runtime_argv(out);
 
     /* _start: salva argc/argv em globais, chama principal e encerra via
@@ -1022,6 +1161,9 @@ void codegen_emit(FILE *out, const Program *prog)
     fprintf(out, "    movq    $60, %%rax\n");               /* SYS_exit */
     fprintf(out, "    syscall\n");
 
+    /* Globais sao emitidos antes de rodata porque podem registrar novas
+     * strings (.quad .LCstr<id> para inicializadores 'caractere *'). */
+    emit_globals(&g, prog);
     emit_rodata(&g);
 
     free(g.strs);

@@ -1,0 +1,27 @@
+// esperado: 30
+// Global do tipo 'estrutura X *', inicialmente nulo. Em runtime, alocamos
+// um No no heap, atribuimos a global, escrevemos campos e lemos depois
+// a partir de outra funcao usando '->' sobre a global.
+estrutura No {
+    inteiro v;
+    estrutura No *prox;
+}
+
+estrutura No *cabeca = nulo;
+
+funcao vazio inicializar() {
+    cabeca = alocar(16);
+    cabeca->v = 30;
+    cabeca->prox = nulo;
+}
+
+funcao inteiro ler_valor() {
+    retornar cabeca->v;
+}
+
+funcao inteiro principal() {
+    inicializar();
+    inteiro r = ler_valor();
+    liberar(cabeca, 16);
+    retornar r;
+}

@@ -1,0 +1,7 @@
+// erro: variavel global 'x' redefinida
+inteiro x = 1;
+inteiro x = 2;
+
+funcao inteiro principal() {
+    retornar x;
+}

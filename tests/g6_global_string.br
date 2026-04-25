@@ -1,0 +1,20 @@
+// esperado: 0
+// Global de tipo 'caractere *' inicializada com literal de string. O
+// programa usa 'ler_byte' para verificar bytes individuais, e tambem
+// reatribui a global em runtime para outro literal e re-verifica.
+caractere *saudacao = "ola";
+caractere *outra;             // sem init: zero (nulo) em .data
+
+funcao inteiro principal() {
+    se (ler_byte(saudacao, 0) != 'o') { retornar 1; }
+    se (ler_byte(saudacao, 1) != 'l') { retornar 2; }
+    se (ler_byte(saudacao, 2) != 'a') { retornar 3; }
+    se (ler_byte(saudacao, 3) != 0)   { retornar 4; }
+
+    se (outra != nulo) { retornar 5; }
+    outra = "br";
+    se (ler_byte(outra, 0) != 'b') { retornar 6; }
+    se (ler_byte(outra, 1) != 'r') { retornar 7; }
+    se (ler_byte(outra, 2) != 0)   { retornar 8; }
+    retornar 0;
+}

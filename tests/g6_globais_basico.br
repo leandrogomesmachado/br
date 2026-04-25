@@ -1,0 +1,17 @@
+// esperado: 42
+// Globais inteiras com e sem inicializador, lidas e escritas de funcoes
+// distintas. Verifica que o estado persiste entre chamadas (semantica
+// de variavel global de C: vive durante todo o programa).
+inteiro contador = 0;
+inteiro alvo = 7;
+
+funcao vazio incrementar() {
+    contador = contador + 1;
+}
+
+funcao inteiro principal() {
+    enquanto (contador < alvo) {
+        incrementar();
+    }
+    retornar contador * 6;   // 7 * 6 = 42
+}

@@ -116,27 +116,37 @@ struct Expr {
 
         struct {
             char *name;          /* alocado; resolvido pelo resolver */
-            int   rbp_offset;    /* preenchido pelo resolver (bytes, negativo) */
+            int   rbp_offset;    /* preenchido pelo resolver (bytes, negativo);
+                                  * nao usado quando is_global == 1 */
+            int   is_global;     /* G.6: 1 se referencia uma variavel global,
+                                  * caso em que o codegen usa o nome (RIP-rel) */
         } var;
 
         struct {
             char *name;          /* alocado */
             Expr *index;
             int   base_offset;   /* offset de v[0] (vetor) OU slot do proprio
-                                  * ponteiro (via_pointer == 1) */
+                                  * ponteiro (via_pointer == 1); nao usado
+                                  * quando is_global == 1 */
             int   array_len;     /* numero de elementos (0 se via_pointer) */
             int   via_pointer;   /* 0 = vetor fixo; 1 = indexacao em ponteiro
                                   * (acucar para '*(p + indice)') */
+            int   is_global;     /* G.6: 1 se 'name' e' uma variavel global
+                                  * (ponteiro escalar; nao ha vetor global) */
         } index;
 
         struct {
             char *var_name;      /* nome da variavel (alocado) */
             char *field_name;    /* nome do campo (alocado) */
             int   rbp_offset;    /* via_pointer==0: offset absoluto do campo no frame;
-                                  * via_pointer==1: offset do SLOT DO PONTEIRO no frame */
+                                  * via_pointer==1: offset do SLOT DO PONTEIRO no frame.
+                                  * Nao usado quando is_global == 1. */
             int   field_byte_offset; /* so usado quando via_pointer==1: offset
                                       * do campo dentro da estrutura apontada */
             int   via_pointer;   /* 0 = 'var.campo'; 1 = 'p->campo' */
+            int   is_global;     /* G.6: 1 se 'var_name' e' uma global ponteiro
+                                  * para estrutura (so faz sentido com via_pointer==1
+                                  * nesta versao, ja que nao ha struct global) */
         } field;
 
         struct {
@@ -276,11 +286,26 @@ typedef struct FuncDecl {
     int     col;
 } FuncDecl;
 
+/* G.6: declaracao global no nivel do arquivo. Apenas escalares e ponteiros
+ * sao suportados nesta versao (sem vetores nem structs por valor); a
+ * inicializacao e' restrita a literais (inteiro, caractere, string, nulo)
+ * para que tudo seja resolvido em tempo de compilacao e emitido em .data
+ * (ou .bss quando 'init' e' NULL). */
+typedef struct GlobalDecl {
+    BrType  type;
+    char   *name;       /* alocado */
+    Expr   *init;       /* literal-only; pode ser NULL (zero-init em .bss) */
+    int     line;
+    int     col;
+} GlobalDecl;
+
 typedef struct {
-    FuncDecl   **funcs;     /* vetor alocado */
-    size_t       nfuncs;
-    StructDecl **structs;   /* vetor alocado */
-    size_t       nstructs;
+    FuncDecl    **funcs;     /* vetor alocado */
+    size_t        nfuncs;
+    StructDecl  **structs;   /* vetor alocado */
+    size_t        nstructs;
+    GlobalDecl  **globals;   /* vetor alocado */
+    size_t        nglobals;
 } Program;
 
 /* Construtores de expressoes (alocam com malloc). */
@@ -317,6 +342,17 @@ void  ast_block_append(Block *b, Stmt *s);
 void  ast_program_init(Program *p);
 void  ast_program_add_func(Program *p, FuncDecl *f);
 void  ast_program_add_struct(Program *p, StructDecl *s);
+void  ast_program_add_global(Program *p, GlobalDecl *g);
+
+/* Procura uma variavel global declarada pelo nome ('name[0..len)').
+ * Retorna NULL se nao encontrada. Usado pelo parser apenas em diagnosticos
+ * imediatos; o lookup principal e' feito pelo resolver. */
+const GlobalDecl *ast_program_find_global(const Program *p,
+                                          const char *name, size_t name_len);
+
+GlobalDecl *ast_global_decl_new(BrType type, const char *name, size_t name_len,
+                                Expr *init, int line, int col);
+void        ast_free_global(GlobalDecl *g);
 
 /* Procura uma estrutura ja declarada pelo nome (compara 'name[0..len)').
  * Retorna NULL se nao encontrada. Usado pelo parser para resolver

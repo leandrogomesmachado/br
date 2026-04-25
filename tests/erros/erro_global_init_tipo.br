@@ -1,0 +1,7 @@
+// erro: inicializacao de global
+// Inicializador com tipo incompativel (string para inteiro).
+inteiro n = "abc";
+
+funcao inteiro principal() {
+    retornar n;
+}

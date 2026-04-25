@@ -1,0 +1,13 @@
+// esperado: 99
+// '&global' produz ponteiro RIP-relativo. Passamos esse endereco para uma
+// funcao que escreve via '*p = ...'.
+inteiro estado = 0;
+
+funcao vazio definir(inteiro *p, inteiro v) {
+    *p = v;
+}
+
+funcao inteiro principal() {
+    definir(&estado, 99);
+    retornar estado;
+}

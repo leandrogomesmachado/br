@@ -1,0 +1,6 @@
+// erro: nome 'principal' ja usado por funcao
+inteiro principal = 42;
+
+funcao inteiro principal() {
+    retornar principal;
+}

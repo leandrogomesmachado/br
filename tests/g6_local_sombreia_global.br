@@ -1,0 +1,9 @@
+// esperado: 5
+// Variavel local com mesmo nome de uma global deve sombrear a global
+// dentro da funcao (semantica padrao de C/Pascal/etc).
+inteiro x = 100;
+
+funcao inteiro principal() {
+    inteiro x = 5;
+    retornar x;
+}

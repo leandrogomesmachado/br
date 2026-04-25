@@ -1,0 +1,17 @@
+// esperado: 0
+// Bifurca, no filho chama 'sair(0)', no pai aguarda. Retorna 0 se tudo
+// correu (filho criado, aguardar bem-sucedido) ou codigo nao-zero em
+// falha. Nao usamos 'executar' aqui para nao depender de binarios
+// externos especificos.
+funcao inteiro principal() {
+    inteiro pid = bifurcar();
+    se (pid < 0) { retornar 1; }
+    se (pid == 0) {
+        // filho: encerra com 0
+        sair(0);
+    }
+    // pai: aguarda o filho
+    inteiro w = aguardar(pid);
+    se (w < 0) { retornar 2; }
+    retornar 0;
+}

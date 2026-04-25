@@ -205,10 +205,12 @@ void ast_block_append(Block *b, Stmt *s)
 
 void ast_program_init(Program *p)
 {
-    p->funcs    = NULL;
-    p->nfuncs   = 0;
-    p->structs  = NULL;
-    p->nstructs = 0;
+    p->funcs     = NULL;
+    p->nfuncs    = 0;
+    p->structs   = NULL;
+    p->nstructs  = 0;
+    p->globals   = NULL;
+    p->nglobals  = 0;
 }
 
 void ast_program_add_func(Program *p, FuncDecl *f)
@@ -221,6 +223,49 @@ void ast_program_add_struct(Program *p, StructDecl *s)
 {
     p->structs = (StructDecl **)br_xrealloc(p->structs, (p->nstructs + 1) * sizeof(StructDecl *));
     p->structs[p->nstructs++] = s;
+}
+
+void ast_program_add_global(Program *p, GlobalDecl *g)
+{
+    p->globals = (GlobalDecl **)br_xrealloc(p->globals,
+                                            (p->nglobals + 1) * sizeof(GlobalDecl *));
+    p->globals[p->nglobals++] = g;
+}
+
+const GlobalDecl *ast_program_find_global(const Program *p,
+                                          const char *name, size_t name_len)
+{
+    for (size_t i = 0; i < p->nglobals; i++) {
+        const char *gn = p->globals[i]->name;
+        if (strlen(gn) == name_len && memcmp(gn, name, name_len) == 0) {
+            return p->globals[i];
+        }
+    }
+    return NULL;
+}
+
+GlobalDecl *ast_global_decl_new(BrType type, const char *name, size_t name_len,
+                                Expr *init, int line, int col)
+{
+    GlobalDecl *g = (GlobalDecl *)br_xcalloc(1, sizeof(GlobalDecl));
+    g->type = type;
+    g->name = br_xstrndup(name, name_len);
+    g->init = init;
+    g->line = line;
+    g->col  = col;
+    return g;
+}
+
+void ast_free_global(GlobalDecl *g)
+{
+    if (!g) {
+        return;
+    }
+    free(g->name);
+    if (g->init) {
+        ast_free_expr(g->init);
+    }
+    free(g);
 }
 
 const StructDecl *ast_program_find_struct(const Program *p,
@@ -403,8 +448,14 @@ void ast_free_program(Program *p)
         ast_free_struct_decl(p->structs[i]);
     }
     free(p->structs);
-    p->funcs    = NULL;
-    p->nfuncs   = 0;
-    p->structs  = NULL;
-    p->nstructs = 0;
+    for (size_t i = 0; i < p->nglobals; i++) {
+        ast_free_global(p->globals[i]);
+    }
+    free(p->globals);
+    p->funcs     = NULL;
+    p->nfuncs    = 0;
+    p->structs   = NULL;
+    p->nstructs  = 0;
+    p->globals   = NULL;
+    p->nglobals  = 0;
 }

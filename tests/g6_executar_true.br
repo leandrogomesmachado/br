@@ -1,0 +1,22 @@
+// esperado: 0
+// Bifurca, no filho monta argv = ["/bin/true", nulo] e chama 'executar'.
+// Se 'executar' tiver sucesso, o filho vira '/bin/true' e termina com 0.
+// O pai aguarda e retorna 0; qualquer falha resulta em codigo nao-zero.
+funcao inteiro principal() {
+    inteiro pid = bifurcar();
+    se (pid < 0) { retornar 1; }
+    se (pid == 0) {
+        // Filho: monta argv com 2 slots de ponteiro.
+        caractere **argv = alocar(16);
+        argv[0] = "/bin/true";
+        argv[1] = nulo;
+        executar("/bin/true", argv);
+        // So chegamos aqui se 'executar' falhou; encerra com codigo != 0
+        // para sinalizar erro ao pai (ainda que esta versao de aguardar
+        // nao retorne o status do filho).
+        sair(99);
+    }
+    inteiro w = aguardar(pid);
+    se (w < 0) { retornar 2; }
+    retornar 0;
+}

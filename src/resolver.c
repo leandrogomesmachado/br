@@ -212,9 +212,40 @@ static void stab_add(StructTable *t, const StructDecl *sd)
     t->items[t->len++] = sd;
 }
 
+/* G.6: tabela de variaveis globais. Lookup por nome, retornando o
+ * GlobalDecl que contem tipo, nome, init etc. */
+typedef struct {
+    const GlobalDecl **items;
+    size_t             len;
+} GlobalTable;
+
+static void gtab_init(GlobalTable *t) { t->items = NULL; t->len = 0; }
+static void gtab_free(GlobalTable *t)
+{
+    free((void *)t->items);
+    t->items = NULL;
+    t->len   = 0;
+}
+static const GlobalDecl *gtab_find(const GlobalTable *t, const char *name)
+{
+    for (size_t i = 0; i < t->len; i++) {
+        if (strcmp(t->items[i]->name, name) == 0) {
+            return t->items[i];
+        }
+    }
+    return NULL;
+}
+static void gtab_add(GlobalTable *t, const GlobalDecl *g)
+{
+    t->items = (const GlobalDecl **)br_xrealloc((void *)t->items,
+                                                (t->len + 1) * sizeof(GlobalDecl *));
+    t->items[t->len++] = g;
+}
+
 typedef struct {
     const FuncTable   *ftab;
     const StructTable *stab;
+    const GlobalTable *gtab;
     Scope             *scope;
     const char        *path;
     const FuncDecl    *cur_func;  /* funcao sendo resolvida; NULL fora */
@@ -331,6 +362,13 @@ static const struct {
      * qualquer codigo que processe stream binario de bytes reais. */
     { "ler_byte",           2, 0 },   /* ler_byte(ptr, i)        -> inteiro */
     { "escrever_byte",      3, 0 },   /* escrever_byte(ptr,i,v)  -> inteiro */
+    /* G.6: criacao e controle de processos. Permitem que um programa BR
+     * invoque programas externos (por exemplo o montador 'as' e o
+     * vinculador 'ld') quando ele proprio for usado para construir um
+     * executavel a partir de um arquivo .br. */
+    { "bifurcar",           0, 0 },   /* fork:    pid pai/0 filho/-errno */
+    { "executar",           2, 0 },   /* execve(path, argv, NULL=envp)  */
+    { "aguardar",           1, 0 },   /* wait4(pid, &status, 0, NULL)   */
 };
 
 static int is_builtin(const char *name)
@@ -402,45 +440,68 @@ static void resolve_expr(RCtx *c, Expr *e)
             break;
         case EXPR_VAR: {
             const ScopeEntry *se = scope_lookup_entry(c->scope, e->as.var.name);
-            if (!se) {
+            if (se) {
+                if (se->array_len > 0) {
+                    br_fatal_at(c->path, e->line, e->col,
+                                "vetor '%s' nao pode ser usado como valor escalar; use '%s[i]'",
+                                e->as.var.name, e->as.var.name);
+                }
+                if (se->struct_decl) {
+                    br_fatal_at(c->path, e->line, e->col,
+                                "variavel de estrutura '%s' nao pode ser usada como valor escalar; use '%s.campo'",
+                                e->as.var.name, e->as.var.name);
+                }
+                e->as.var.rbp_offset = se->offset;
+                e->eval_type = se->type;
+                break;
+            }
+            /* G.6: fallback em variaveis globais. */
+            const GlobalDecl *g = gtab_find(c->gtab, e->as.var.name);
+            if (!g) {
                 br_fatal_at(c->path, e->line, e->col,
                             "variavel '%s' nao declarada", e->as.var.name);
             }
-            if (se->array_len > 0) {
-                br_fatal_at(c->path, e->line, e->col,
-                            "vetor '%s' nao pode ser usado como valor escalar; use '%s[i]'",
-                            e->as.var.name, e->as.var.name);
-            }
-            if (se->struct_decl) {
-                br_fatal_at(c->path, e->line, e->col,
-                            "variavel de estrutura '%s' nao pode ser usada como valor escalar; use '%s.campo'",
-                            e->as.var.name, e->as.var.name);
-            }
-            e->as.var.rbp_offset = se->offset;
-            e->eval_type = se->type;
+            e->as.var.is_global = 1;
+            e->eval_type = g->type;
             break;
         }
         case EXPR_INDEX: {
             const ScopeEntry *se = scope_lookup_entry(c->scope, e->as.index.name);
-            if (!se) {
-                br_fatal_at(c->path, e->line, e->col,
-                            "variavel '%s' nao declarada", e->as.index.name);
+            BrType vt;
+            int    is_global = 0;
+            int    array_len = 0;
+            int    base_offset = 0;
+            if (se) {
+                vt          = se->type;
+                array_len   = se->array_len;
+                base_offset = se->offset;
+            } else {
+                /* G.6: fallback em globais (apenas ponteiro escalar). */
+                const GlobalDecl *g = gtab_find(c->gtab, e->as.index.name);
+                if (!g) {
+                    br_fatal_at(c->path, e->line, e->col,
+                                "variavel '%s' nao declarada", e->as.index.name);
+                }
+                vt        = g->type;
+                is_global = 1;
             }
             resolve_expr(c, e->as.index.index);
-            if (se->array_len > 0) {
-                /* Vetor fixo classico. */
-                e->as.index.base_offset = se->offset;
-                e->as.index.array_len   = se->array_len;
+            if (array_len > 0) {
+                /* Vetor fixo classico (so' faz sentido em locais). */
+                e->as.index.base_offset = base_offset;
+                e->as.index.array_len   = array_len;
                 e->as.index.via_pointer = 0;
-                e->eval_type = se->type;
-            } else if (br_type_is_pointer(se->type)) {
-                /* p[i] == *(p + i) para ponteiros. O offset armazenado aponta
-                 * para o slot do proprio ponteiro no frame; o codegen fara
-                 * 'load p; add i*8; deref'. */
-                e->as.index.base_offset = se->offset;
+                e->as.index.is_global   = 0;
+                e->eval_type = vt;
+            } else if (br_type_is_pointer(vt)) {
+                /* p[i] == *(p + i) para ponteiros. Para locais, base_offset
+                 * aponta para o slot do proprio ponteiro no frame; para
+                 * globais, o codegen carregara o ponteiro pelo nome. */
+                e->as.index.base_offset = base_offset;
                 e->as.index.array_len   = 0;
                 e->as.index.via_pointer = 1;
-                e->eval_type = br_type_pointer(se->type.base, se->type.ptr_depth - 1);
+                e->as.index.is_global   = is_global;
+                e->eval_type = br_type_pointer(vt.base, vt.ptr_depth - 1);
             } else {
                 br_fatal_at(c->path, e->line, e->col,
                             "'%s' nao e um vetor nem um ponteiro; indexacao '[]' invalida",
@@ -450,32 +511,48 @@ static void resolve_expr(RCtx *c, Expr *e)
         }
         case EXPR_FIELD: {
             const ScopeEntry *se = scope_lookup_entry(c->scope, e->as.field.var_name);
-            if (!se) {
-                br_fatal_at(c->path, e->line, e->col,
-                            "variavel '%s' nao declarada", e->as.field.var_name);
+            BrType vt = (BrType){ BR_BASE_INTEIRO, 0, NULL };
+            const StructDecl *vsd = NULL;     /* struct por valor (so locais) */
+            int    is_global = 0;
+            int    voffset = 0;
+            if (se) {
+                vt      = se->type;
+                vsd     = se->struct_decl;
+                voffset = se->offset;
+            } else {
+                /* G.6: fallback em globais (so' ponteiro-para-estrutura
+                 * faz sentido aqui, ja que nao ha struct global por valor). */
+                const GlobalDecl *g = gtab_find(c->gtab, e->as.field.var_name);
+                if (!g) {
+                    br_fatal_at(c->path, e->line, e->col,
+                                "variavel '%s' nao declarada", e->as.field.var_name);
+                }
+                vt        = g->type;
+                is_global = 1;
             }
             const StructDecl *sd = NULL;
             if (e->as.field.via_pointer) {
-                /* p->campo: 'p' precisa ser ponteiro-para-estrutura
-                 * (ptr_depth == 1, base == ESTRUTURA). Mais de um nivel
-                 * de indirecao exige '*' explicito antes do '->', que
-                 * por enquanto nao parseamos. */
-                if (!br_type_is_struct_ptr(se->type) || se->type.ptr_depth != 1) {
+                /* p->campo: 'p' precisa ser ponteiro-para-estrutura. */
+                if (!br_type_is_struct_ptr(vt) || vt.ptr_depth != 1) {
                     br_fatal_at(c->path, e->line, e->col,
                                 "'%s' nao e do tipo 'estrutura X *'; uso de '->' invalido",
                                 e->as.field.var_name);
                 }
-                sd = se->type.struct_decl;
+                sd = vt.struct_decl;
             } else {
-                /* var.campo: 'var' precisa ser uma estrutura por valor
-                 * (declarada via STMT_STRUCT_VAR_DECL). */
-                if (!se->struct_decl) {
+                /* var.campo: 'var' precisa ser estrutura por valor.
+                 * Globais nao podem ter tipo struct-por-valor nesta versao,
+                 * entao se chegamos aqui via global, e' erro. */
+                if (is_global || !vsd) {
                     br_fatal_at(c->path, e->line, e->col,
                                 "'%s' nao e uma variavel de estrutura; acesso '.' invalido",
                                 e->as.field.var_name);
                 }
-                sd = se->struct_decl;
+                sd = vsd;
             }
+            /* 'se' pode ser NULL quando is_global == 1; uso abaixo trocado
+             * por 'voffset' / 'is_global'. */
+            (void)voffset;
             /* Localiza o campo pelo nome na estrutura associada. */
             const Field *fd = NULL;
             for (size_t i = 0; i < sd->nfields; i++) {
@@ -489,13 +566,16 @@ static void resolve_expr(RCtx *c, Expr *e)
                             "estrutura '%s' nao possui o campo '%s'",
                             sd->name, e->as.field.field_name);
             }
+            e->as.field.is_global = is_global;
             if (e->as.field.via_pointer) {
                 /* Codegen carrega 'p' do slot e soma o offset do campo. */
-                e->as.field.rbp_offset       = se->offset;
+                e->as.field.rbp_offset        = is_global ? 0 : voffset;
                 e->as.field.field_byte_offset = fd->byte_offset;
             } else {
-                /* Codegen acessa diretamente offset absoluto no frame. */
-                e->as.field.rbp_offset = se->offset + fd->byte_offset;
+                /* Codegen acessa diretamente offset absoluto no frame
+                 * (so' alcancavel para locais; globais struct-por-valor
+                 * sao rejeitados acima). */
+                e->as.field.rbp_offset = voffset + fd->byte_offset;
             }
             e->eval_type = fd->type;
             break;
@@ -700,7 +780,8 @@ static void resolve_expr(RCtx *c, Expr *e)
                     strcmp(bn, "alocar") == 0 ||
                     strcmp(bn, "fechar_arquivo") == 0 ||
                     strcmp(bn, "sair") == 0 ||
-                    strcmp(bn, "argumento") == 0) {
+                    strcmp(bn, "argumento") == 0 ||
+                    strcmp(bn, "aguardar") == 0) {
                     /* Builtins de 1 argumento numerico escalar. */
                     BrType at = e->as.call.args[0]->eval_type;
                     if (!br_type_is_numeric_scalar(at)) {
@@ -738,6 +819,20 @@ static void resolve_expr(RCtx *c, Expr *e)
                         !br_type_is_numeric_scalar(a2)) {
                         br_fatal_at(c->path, e->line, e->col,
                                     "argumentos 2 e 3 de 'abrir_arquivo' devem ser inteiros (flags, modo)");
+                    }
+                } else if (strcmp(bn, "executar") == 0) {
+                    /* (caminho: caractere*, argv: caractere **) */
+                    BrType a0 = e->as.call.args[0]->eval_type;
+                    BrType a1 = e->as.call.args[1]->eval_type;
+                    if (!br_type_is_pointer(a0)) {
+                        br_fatal_at(c->path, e->as.call.args[0]->line,
+                                    e->as.call.args[0]->col,
+                                    "primeiro argumento de 'executar' deve ser ponteiro (caminho)");
+                    }
+                    if (!br_type_is_pointer(a1)) {
+                        br_fatal_at(c->path, e->as.call.args[1]->line,
+                                    e->as.call.args[1]->col,
+                                    "segundo argumento de 'executar' deve ser ponteiro (argv)");
                     }
                 } else if (strcmp(bn, "ler_byte") == 0) {
                     /* (ptr, i: int) -> int */
@@ -914,11 +1009,12 @@ static int align_up_16(int n)
 }
 
 static void resolve_func(const FuncTable *ftab, const StructTable *stab,
+                         const GlobalTable *gtab,
                          FuncDecl *f, const char *path)
 {
     Scope sc;
     scope_init(&sc);
-    RCtx ctx = { ftab, stab, &sc, path, f };
+    RCtx ctx = { ftab, stab, gtab, &sc, path, f };
 
     /* Declara parametros no escopo de nivel 1 (acima do corpo). */
     scope_push_block(&sc);
@@ -951,8 +1047,10 @@ void resolver_run(Program *prog, const char *path)
 {
     FuncTable   ftab;
     StructTable stab;
+    GlobalTable gtab;
     ftab_init(&ftab);
     stab_init(&stab);
+    gtab_init(&gtab);
 
     /* Registra as declaracoes de estrutura (permitindo referencia entre elas). */
     for (size_t i = 0; i < prog->nstructs; i++) {
@@ -1019,11 +1117,36 @@ void resolver_run(Program *prog, const char *path)
         }
     }
 
+    /* G.6: registra variaveis globais. Nomes nao podem colidir com funcoes
+     * (ja registradas em ftab) nem com builtins, e devem ser unicos entre
+     * si. O tipo do inicializador, quando presente, deve ser compativel
+     * com o tipo declarado da global. */
+    for (size_t i = 0; i < prog->nglobals; i++) {
+        const GlobalDecl *g = prog->globals[i];
+        if (gtab_find(&gtab, g->name)) {
+            br_fatal_at(path, g->line, g->col,
+                        "variavel global '%s' redefinida", g->name);
+        }
+        if (ftab_find(&ftab, g->name)) {
+            br_fatal_at(path, g->line, g->col,
+                        "nome '%s' ja usado por funcao (ou builtin)", g->name);
+        }
+        if (g->init) {
+            /* O parser ja preenche eval_type do literal; basta typecheck. */
+            RCtx tmp = { &ftab, &stab, &gtab, NULL, path, NULL };
+            typecheck_assign_or_die(&tmp, g->type, g->init->eval_type,
+                                    g->init->line, g->init->col,
+                                    "inicializacao de global");
+        }
+        gtab_add(&gtab, g);
+    }
+
     /* 2a passagem: resolver variaveis/offsets em cada funcao. */
     for (size_t i = 0; i < prog->nfuncs; i++) {
-        resolve_func(&ftab, &stab, prog->funcs[i], path);
+        resolve_func(&ftab, &stab, &gtab, prog->funcs[i], path);
     }
 
     ftab_free(&ftab);
     stab_free(&stab);
+    gtab_free(&gtab);
 }
