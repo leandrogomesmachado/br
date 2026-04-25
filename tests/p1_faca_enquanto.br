@@ -1,0 +1,10 @@
+// esperado: 1
+// 'faca/enquanto' executa o corpo ao menos uma vez mesmo quando a
+// condicao e' falsa de saida. Aqui x recebe 1 antes do teste 'enquanto (0)'.
+funcao inteiro principal() {
+    inteiro x = 0;
+    faca {
+        x = x + 1;
+    } enquanto (0);
+    retornar x;
+}

@@ -1,0 +1,10 @@
+// esperado: 7
+// 'parar' dentro de 'enquanto'.
+funcao inteiro principal() {
+    inteiro i = 0;
+    enquanto (1) {
+        i = i + 1;
+        se (i == 7) { parar; }
+    }
+    retornar i;
+}

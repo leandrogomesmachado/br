@@ -41,6 +41,15 @@ typedef struct {
     int         uses_alocar;    /* se houver uso de 'alocar' */
     int         uses_liberar;   /* se houver uso de 'liberar' */
     int         uses_argv;      /* se houver uso de argumento/numero_argumentos */
+
+    /* Pilha de contextos de loop, usada por STMT_BREAK / STMT_CONTINUE.
+     * Cada nivel guarda os labels de destino: 'continue' alvo (inicio do
+     * teste em while/do-while; passo em for) e 'break' alvo (apos o laco).
+     * Profundidade real e' limitada pelo aninhamento maximo do programa,
+     * mas 64 niveis cobrem qualquer codigo razoavel. */
+    int         loop_continue[64];
+    int         loop_break[64];
+    int         loop_depth;
 } CG;
 
 static const char *const ARG_REGS[] = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
@@ -81,6 +90,21 @@ static void emit_lea_slot(CG *g, const char *reg, int is_global,
 static int new_label(CG *g)
 {
     return g->label_id++;
+}
+
+static void loop_push(CG *g, int continue_lbl, int break_lbl)
+{
+    if (g->loop_depth >= (int)(sizeof(g->loop_continue) / sizeof(int))) {
+        br_fatal("codegen: aninhamento de lacos excedeu o maximo (64)");
+    }
+    g->loop_continue[g->loop_depth] = continue_lbl;
+    g->loop_break[g->loop_depth]    = break_lbl;
+    g->loop_depth++;
+}
+
+static void loop_pop(CG *g)
+{
+    g->loop_depth--;
 }
 
 static void emit_push_rax(CG *g)
@@ -702,11 +726,75 @@ static void gen_stmt(CG *g, const Stmt *s)
             gen_expr(g, s->as.while_s.cond);
             fprintf(g->out, "    cmpq    $0, %%rax\n");
             fprintf(g->out, "    je      .L%d\n", l_end);
+            loop_push(g, l_begin, l_end);
             gen_stmt(g, s->as.while_s.body);
+            loop_pop(g);
             fprintf(g->out, "    jmp     .L%d\n", l_begin);
             fprintf(g->out, ".L%d:\n", l_end);
             break;
         }
+        case STMT_DO_WHILE: {
+            /* faca corpo enquanto (cond);
+             *   .Lbody:  body
+             *   .Lcont:  cond ; jne .Lbody
+             *   .Lend:
+             * 'continuar' salta para .Lcont (avalia cond); 'parar' salta
+             * para .Lend. */
+            int l_body = new_label(g);
+            int l_cont = new_label(g);
+            int l_end  = new_label(g);
+            fprintf(g->out, ".L%d:\n", l_body);
+            loop_push(g, l_cont, l_end);
+            gen_stmt(g, s->as.do_while_s.body);
+            loop_pop(g);
+            fprintf(g->out, ".L%d:\n", l_cont);
+            gen_expr(g, s->as.do_while_s.cond);
+            fprintf(g->out, "    cmpq    $0, %%rax\n");
+            fprintf(g->out, "    jne     .L%d\n", l_body);
+            fprintf(g->out, ".L%d:\n", l_end);
+            break;
+        }
+        case STMT_FOR: {
+            /* para (init; cond; step) corpo
+             *   init
+             *   .Ltest:  cond ? je .Lend
+             *            body
+             *   .Lstep:  step
+             *            jmp .Ltest
+             *   .Lend:
+             * 'continuar' salta para .Lstep para nao pular o passo. */
+            int l_test = new_label(g);
+            int l_step = new_label(g);
+            int l_end  = new_label(g);
+            if (s->as.for_s.init) {
+                gen_stmt(g, s->as.for_s.init);
+            }
+            fprintf(g->out, ".L%d:\n", l_test);
+            if (s->as.for_s.cond) {
+                gen_expr(g, s->as.for_s.cond);
+                fprintf(g->out, "    cmpq    $0, %%rax\n");
+                fprintf(g->out, "    je      .L%d\n", l_end);
+            }
+            loop_push(g, l_step, l_end);
+            gen_stmt(g, s->as.for_s.body);
+            loop_pop(g);
+            fprintf(g->out, ".L%d:\n", l_step);
+            if (s->as.for_s.step) {
+                gen_stmt(g, s->as.for_s.step);
+            }
+            fprintf(g->out, "    jmp     .L%d\n", l_test);
+            fprintf(g->out, ".L%d:\n", l_end);
+            break;
+        }
+        case STMT_BREAK:
+            /* Resolver ja garantiu que estamos dentro de um laco. */
+            fprintf(g->out, "    jmp     .L%d\n",
+                    g->loop_break[g->loop_depth - 1]);
+            break;
+        case STMT_CONTINUE:
+            fprintf(g->out, "    jmp     .L%d\n",
+                    g->loop_continue[g->loop_depth - 1]);
+            break;
         case STMT_SWITCH: {
             /* Estrategia: avalia 'expr' uma vez em %rax, depois compara
              * sucessivamente contra cada valor de caso e salta para o
@@ -1113,6 +1201,7 @@ void codegen_emit(FILE *out, const Program *prog)
         .uses_alocar    = 0,
         .uses_liberar   = 0,
         .uses_argv      = 0,
+        .loop_depth     = 0,
     };
 
     fprintf(out, "# Gerado por brc v0.0.1a\n");

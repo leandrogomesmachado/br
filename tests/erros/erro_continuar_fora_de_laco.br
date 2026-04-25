@@ -1,0 +1,5 @@
+// erro: 'continuar' so e' permitido dentro de
+funcao inteiro principal() {
+    se (1) { continuar; }
+    retornar 0;
+}

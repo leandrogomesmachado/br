@@ -1,0 +1,10 @@
+// erro: 'parar' so e' permitido dentro de
+// 'parar' em 'escolher' e' redundante (sem fall-through) e proibido.
+funcao inteiro principal() {
+    inteiro x = 1;
+    escolher (x) {
+        caso 1: { parar; }
+        senao: { }
+    }
+    retornar 0;
+}

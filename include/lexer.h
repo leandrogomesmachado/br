@@ -62,6 +62,9 @@ typedef enum {
     TK_KW_TAMANHO_DE,/* tamanho_de(tipo) */
     TK_KW_ESCOLHER,  /* escolher (switch) */
     TK_KW_CASO,      /* caso */
+    TK_KW_PARAR,     /* parar    (break)    */
+    TK_KW_CONTINUAR, /* continuar (continue) */
+    TK_KW_FACA,      /* faca     (do em do/while) */
 } TokenKind;
 
 typedef struct {

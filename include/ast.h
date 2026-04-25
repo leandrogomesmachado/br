@@ -181,6 +181,10 @@ typedef enum {
     STMT_BLOCK,
     STMT_IF,
     STMT_WHILE,
+    STMT_DO_WHILE,     /* faca { body } enquanto (cond);                    */
+    STMT_FOR,          /* para (init; cond; step) body                      */
+    STMT_BREAK,        /* parar;     - sai do laco mais interno             */
+    STMT_CONTINUE,     /* continuar; - pula para o passo do laco mais interno */
     STMT_SWITCH        /* escolher (expr) { caso V: stmt; ... senao: stmt; } */
 } StmtKind;
 
@@ -228,6 +232,26 @@ struct Stmt {
             Expr *cond;
             Stmt *body;
         } while_s;
+
+        /* STMT_DO_WHILE: faca { body } enquanto (cond);
+         * Mesma struct que while_s, mas a semantica do codegen e' diferente
+         * (executa body uma vez antes de avaliar cond). */
+        struct {
+            Expr *cond;
+            Stmt *body;
+        } do_while_s;
+
+        /* STMT_FOR: laco com init/cond/step explicitos. Qualquer um pode
+         * ser NULL (cond NULL = laco infinito). 'init' pode ser uma
+         * declaracao (STMT_VAR_DECL) ou uma expressao (STMT_EXPR); o
+         * resolver introduz um escopo proprio para o laco quando init e'
+         * declaracao, igual a 'for' do C moderno. */
+        struct {
+            Stmt *init;     /* opcional */
+            Expr *cond;     /* opcional; NULL == 1 (sempre verdadeiro) */
+            Stmt *step;     /* opcional; sempre STMT_EXPR quando presente */
+            Stmt *body;
+        } for_s;
 
         /* STMT_SWITCH: cada SwitchCase tem um valor inteiro literal (validado
          * em parse_time) e um corpo. Sem fall-through: cada caso e' um bloco
@@ -332,6 +356,10 @@ Stmt *ast_stmt_expr(Expr *e, int line, int col);
 Stmt *ast_stmt_block(Block body, int line, int col);
 Stmt *ast_stmt_if(Expr *cond, Stmt *then_branch, Stmt *else_branch, int line, int col);
 Stmt *ast_stmt_while(Expr *cond, Stmt *body, int line, int col);
+Stmt *ast_stmt_do_while(Expr *cond, Stmt *body, int line, int col);
+Stmt *ast_stmt_for(Stmt *init, Expr *cond, Stmt *step, Stmt *body, int line, int col);
+Stmt *ast_stmt_break(int line, int col);
+Stmt *ast_stmt_continue(int line, int col);
 Stmt *ast_stmt_switch(Expr *expr, SwitchCase *cases, size_t ncases,
                       Stmt *default_stmt, int line, int col);
 

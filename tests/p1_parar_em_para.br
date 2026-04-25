@@ -1,0 +1,10 @@
+// esperado: 15
+// 'parar' encerra o laco 'para' antes de chegar em 100; soma 1..5.
+funcao inteiro principal() {
+    inteiro soma = 0;
+    para (inteiro i = 1; i <= 100; i = i + 1) {
+        se (i > 5) { parar; }
+        soma = soma + i;
+    }
+    retornar soma;   // 1+2+3+4+5 = 15
+}

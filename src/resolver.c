@@ -249,6 +249,9 @@ typedef struct {
     Scope             *scope;
     const char        *path;
     const FuncDecl    *cur_func;  /* funcao sendo resolvida; NULL fora */
+    int                loop_depth; /* profundidade de lacos para validar
+                                    * 'parar' e 'continuar' (so' validos
+                                    * quando > 0). 'escolher' nao conta. */
 } RCtx;
 
 static void resolve_expr(RCtx *c, Expr *e);
@@ -981,7 +984,52 @@ static void resolve_stmt(RCtx *c, Stmt *s)
             resolve_expr(c, s->as.while_s.cond);
             typecheck_boolable_or_die(c, s->as.while_s.cond->eval_type,
                                       s->line, s->col, "condicao de 'enquanto'");
+            c->loop_depth++;
             resolve_stmt(c, s->as.while_s.body);
+            c->loop_depth--;
+            break;
+        case STMT_DO_WHILE:
+            c->loop_depth++;
+            resolve_stmt(c, s->as.do_while_s.body);
+            c->loop_depth--;
+            resolve_expr(c, s->as.do_while_s.cond);
+            typecheck_boolable_or_die(c, s->as.do_while_s.cond->eval_type,
+                                      s->line, s->col,
+                                      "condicao de 'faca/enquanto'");
+            break;
+        case STMT_FOR: {
+            /* Se 'init' declara variaveis, elas vivem em um escopo proprio
+             * que abrange cond, step e body (modelo do C moderno). */
+            scope_push_block(c->scope);
+            if (s->as.for_s.init) {
+                resolve_stmt(c, s->as.for_s.init);
+            }
+            if (s->as.for_s.cond) {
+                resolve_expr(c, s->as.for_s.cond);
+                typecheck_boolable_or_die(c, s->as.for_s.cond->eval_type,
+                                          s->line, s->col,
+                                          "condicao de 'para'");
+            }
+            if (s->as.for_s.step) {
+                resolve_stmt(c, s->as.for_s.step);
+            }
+            c->loop_depth++;
+            resolve_stmt(c, s->as.for_s.body);
+            c->loop_depth--;
+            scope_pop_block(c->scope);
+            break;
+        }
+        case STMT_BREAK:
+            if (c->loop_depth == 0) {
+                br_fatal_at(c->path, s->line, s->col,
+                            "'parar' so e' permitido dentro de 'enquanto', 'para' ou 'faca'");
+            }
+            break;
+        case STMT_CONTINUE:
+            if (c->loop_depth == 0) {
+                br_fatal_at(c->path, s->line, s->col,
+                            "'continuar' so e' permitido dentro de 'enquanto', 'para' ou 'faca'");
+            }
             break;
         case STMT_SWITCH:
             resolve_expr(c, s->as.switch_s.expr);
@@ -1014,7 +1062,7 @@ static void resolve_func(const FuncTable *ftab, const StructTable *stab,
 {
     Scope sc;
     scope_init(&sc);
-    RCtx ctx = { ftab, stab, gtab, &sc, path, f };
+    RCtx ctx = { ftab, stab, gtab, &sc, path, f, 0 };
 
     /* Declara parametros no escopo de nivel 1 (acima do corpo). */
     scope_push_block(&sc);
@@ -1133,7 +1181,7 @@ void resolver_run(Program *prog, const char *path)
         }
         if (g->init) {
             /* O parser ja preenche eval_type do literal; basta typecheck. */
-            RCtx tmp = { &ftab, &stab, &gtab, NULL, path, NULL };
+            RCtx tmp = { &ftab, &stab, &gtab, NULL, path, NULL, 0 };
             typecheck_assign_or_die(&tmp, g->type, g->init->eval_type,
                                     g->init->line, g->init->col,
                                     "inicializacao de global");

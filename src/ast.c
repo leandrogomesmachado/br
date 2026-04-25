@@ -172,6 +172,34 @@ Stmt *ast_stmt_while(Expr *cond, Stmt *body, int line, int col)
     return s;
 }
 
+Stmt *ast_stmt_do_while(Expr *cond, Stmt *body, int line, int col)
+{
+    Stmt *s = alloc_stmt(STMT_DO_WHILE, line, col);
+    s->as.do_while_s.cond = cond;
+    s->as.do_while_s.body = body;
+    return s;
+}
+
+Stmt *ast_stmt_for(Stmt *init, Expr *cond, Stmt *step, Stmt *body, int line, int col)
+{
+    Stmt *s = alloc_stmt(STMT_FOR, line, col);
+    s->as.for_s.init = init;
+    s->as.for_s.cond = cond;
+    s->as.for_s.step = step;
+    s->as.for_s.body = body;
+    return s;
+}
+
+Stmt *ast_stmt_break(int line, int col)
+{
+    return alloc_stmt(STMT_BREAK, line, col);
+}
+
+Stmt *ast_stmt_continue(int line, int col)
+{
+    return alloc_stmt(STMT_CONTINUE, line, col);
+}
+
 Stmt *ast_stmt_switch(Expr *expr, SwitchCase *cases, size_t ncases,
                       Stmt *default_stmt, int line, int col)
 {
@@ -396,6 +424,22 @@ void ast_free_stmt(Stmt *s)
         case STMT_WHILE:
             ast_free_expr(s->as.while_s.cond);
             ast_free_stmt(s->as.while_s.body);
+            break;
+        case STMT_DO_WHILE:
+            ast_free_expr(s->as.do_while_s.cond);
+            ast_free_stmt(s->as.do_while_s.body);
+            break;
+        case STMT_FOR:
+            ast_free_stmt(s->as.for_s.init);
+            if (s->as.for_s.cond) {
+                ast_free_expr(s->as.for_s.cond);
+            }
+            ast_free_stmt(s->as.for_s.step);
+            ast_free_stmt(s->as.for_s.body);
+            break;
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+            /* Nada a liberar alem do proprio nodo. */
             break;
         case STMT_SWITCH:
             ast_free_expr(s->as.switch_s.expr);

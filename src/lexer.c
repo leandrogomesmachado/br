@@ -26,6 +26,9 @@ static const Keyword KEYWORDS[] = {
     {"tamanho_de", TK_KW_TAMANHO_DE},
     {"escolher",   TK_KW_ESCOLHER},
     {"caso",       TK_KW_CASO},
+    {"parar",      TK_KW_PARAR},
+    {"continuar",  TK_KW_CONTINUAR},
+    {"faca",       TK_KW_FACA},
 };
 
 void lexer_init(Lexer *lx, const char *src, const char *path)
@@ -343,6 +346,9 @@ const char *token_kind_name(TokenKind k)
         case TK_KW_TAMANHO_DE:return "'tamanho_de'";
         case TK_KW_ESCOLHER:  return "'escolher'";
         case TK_KW_CASO:      return "'caso'";
+        case TK_KW_PARAR:     return "'parar'";
+        case TK_KW_CONTINUAR: return "'continuar'";
+        case TK_KW_FACA:      return "'faca'";
     }
     return "<?>";
 }

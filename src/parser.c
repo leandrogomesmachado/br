@@ -621,16 +621,14 @@ static Stmt *parse_while(Parser *p)
     return ast_stmt_while(cond, body, line, col);
 }
 
-/* 'para' e' acucar sintatico, convertido para:
- *   { init; enquanto (cond) { body; step; } }
- *
- * Partes opcionais:
- *   - init: ausente se inicia com ';'; pode ser var_decl ou expr
- *   - cond: ausente se ';'; nesse caso assume-se 1 (laco infinito)
- *   - step: ausente se ')'; nesse caso nao ha comando pos-corpo
- *
- * O bloco externo confina variaveis declaradas em 'init' ao escopo do laco,
- * seguindo o modelo do C moderno. */
+/* 'para (init; cond; step) corpo' produz STMT_FOR diretamente; o codegen
+ * usa labels separados para o teste, o passo (alvo de 'continuar') e o
+ * fim (alvo de 'parar'). Partes opcionais:
+ *   - init: ausente se inicia com ';'; pode ser var_decl ou expr-statement
+ *   - cond: ausente se ';'; tratada como sempre verdadeira
+ *   - step: ausente se ')'; nao ha comando pos-corpo
+ * Quando 'init' declara uma variavel, esta vive apenas no escopo do laco
+ * (resolver introduz um bloco implicito), seguindo 'for' do C moderno. */
 static Stmt *parse_for(Parser *p)
 {
     int line = p->cur.line, col = p->cur.col;
@@ -653,10 +651,8 @@ static Stmt *parse_for(Parser *p)
     }
 
     /* ---- cond ---- */
-    Expr *cond;
-    if (p->cur.kind == TK_SEMI) {
-        cond = ast_expr_int_lit(1, p->cur.line, p->cur.col);
-    } else {
+    Expr *cond = NULL;
+    if (p->cur.kind != TK_SEMI) {
         cond = parse_expr(p);
     }
     expect(p, TK_SEMI);
@@ -671,25 +667,43 @@ static Stmt *parse_for(Parser *p)
     expect(p, TK_RPAREN);
 
     Stmt *body = parse_stmt(p);
+    return ast_stmt_for(init_stmt, cond, step_stmt, body, line, col);
+}
 
-    /* Corpo interno do 'enquanto': body seguido do step (se houver). */
-    Block inner;
-    ast_block_init(&inner);
-    ast_block_append(&inner, body);
-    if (step_stmt) {
-        ast_block_append(&inner, step_stmt);
+/* faca corpo enquanto (cond);
+ * Equivalente ao 'do ... while (cond);' do C: o corpo executa ao menos uma
+ * vez antes da primeira avaliacao da condicao. 'continuar' dentro do
+ * corpo salta para a verificacao da condicao. */
+static Stmt *parse_do_while(Parser *p)
+{
+    int line = p->cur.line, col = p->cur.col;
+    advance(p);                 /* consome 'faca' */
+    Stmt *body = parse_stmt(p);
+    if (!accept(p, TK_KW_ENQUANTO)) {
+        br_fatal_at(p->path, p->cur.line, p->cur.col,
+                    "esperada palavra-chave 'enquanto' apos corpo de 'faca'");
     }
-    Stmt *inner_block = ast_stmt_block(inner, line, col);
-    Stmt *w = ast_stmt_while(cond, inner_block, line, col);
+    expect(p, TK_LPAREN);
+    Expr *cond = parse_expr(p);
+    expect(p, TK_RPAREN);
+    expect(p, TK_SEMI);
+    return ast_stmt_do_while(cond, body, line, col);
+}
 
-    /* Bloco externo: init (opcional) + while. */
-    Block outer;
-    ast_block_init(&outer);
-    if (init_stmt) {
-        ast_block_append(&outer, init_stmt);
-    }
-    ast_block_append(&outer, w);
-    return ast_stmt_block(outer, line, col);
+static Stmt *parse_break(Parser *p)
+{
+    int line = p->cur.line, col = p->cur.col;
+    advance(p);                 /* consome 'parar' */
+    expect(p, TK_SEMI);
+    return ast_stmt_break(line, col);
+}
+
+static Stmt *parse_continue(Parser *p)
+{
+    int line = p->cur.line, col = p->cur.col;
+    advance(p);                 /* consome 'continuar' */
+    expect(p, TK_SEMI);
+    return ast_stmt_continue(line, col);
 }
 
 static Stmt *parse_return(Parser *p)
@@ -746,7 +760,10 @@ static Stmt *parse_stmt(Parser *p)
         }
         case TK_KW_SE:        return parse_if(p);
         case TK_KW_ENQUANTO:  return parse_while(p);
+        case TK_KW_FACA:      return parse_do_while(p);
         case TK_KW_PARA:      return parse_for(p);
+        case TK_KW_PARAR:     return parse_break(p);
+        case TK_KW_CONTINUAR: return parse_continue(p);
         case TK_KW_ESCOLHER:  return parse_switch(p);
         case TK_KW_RETORNAR:  return parse_return(p);
         case TK_KW_INTEIRO:

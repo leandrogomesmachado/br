@@ -1,0 +1,12 @@
+// esperado: 25
+// 'continuar' pula o passo de soma para indices pares; o passo do 'para'
+// continua sendo executado (i = i + 1) - garantindo que nao formemos um
+// laco infinito.
+funcao inteiro principal() {
+    inteiro soma = 0;
+    para (inteiro i = 1; i <= 9; i = i + 1) {
+        se (i % 2 == 0) { continuar; }
+        soma = soma + i;
+    }
+    retornar soma;   // 1+3+5+7+9 = 25
+}

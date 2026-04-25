@@ -1,0 +1,12 @@
+// esperado: 6
+// 'parar' so afeta o laco mais interno. O laco externo continua iterando.
+funcao inteiro principal() {
+    inteiro total = 0;
+    para (inteiro i = 0; i < 3; i = i + 1) {
+        para (inteiro j = 0; j < 100; j = j + 1) {
+            se (j == 2) { parar; }    // sai apenas do 'para' interno
+            total = total + 1;        // executado 2 vezes por i
+        }
+    }
+    retornar total;   // 3 * 2 = 6
+}

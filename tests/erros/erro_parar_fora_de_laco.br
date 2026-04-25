@@ -1,0 +1,5 @@
+// erro: 'parar' so e' permitido dentro de
+funcao inteiro principal() {
+    parar;
+    retornar 0;
+}
