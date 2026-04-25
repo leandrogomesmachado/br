@@ -1,0 +1,13 @@
+// Atribuicao composta: +=, -=, *=, /=, %=
+// esperado: 42
+funcao inteiro principal() {
+    inteiro a = 10;
+    a += 5;        // 15
+    a -= 3;        // 12
+    a *= 4;        // 48
+    a /= 2;        // 24
+    a %= 17;       // 7
+    inteiro b = 35;
+    b += a;        // 42
+    retornar b;
+}

@@ -346,6 +346,12 @@ Expr *ast_expr_binop(BinOp op, Expr *lhs, Expr *rhs, int line, int col);
 Expr *ast_expr_unary(UnOp op, Expr *operand, int line, int col);
 Expr *ast_expr_call(const char *name, size_t name_len, Expr **args, size_t nargs, int line, int col);
 
+/* Cria uma copia profunda da expressao 'e'. Util para acucar sintatico
+ * em que um lvalue precisa ser referenciado mais de uma vez, p.ex.
+ * 'a += b' -> 'a = a + b'. NAO copia label_id de literais de string
+ * (eles sao re-emitidos pelo codegen). */
+Expr *ast_clone_expr(const Expr *e);
+
 /* Construtores de comandos. */
 Stmt *ast_stmt_return(Expr *e, int line, int col);
 Stmt *ast_stmt_var_decl(BrType type, const char *name, size_t name_len, int array_len, Expr *init, int line, int col);

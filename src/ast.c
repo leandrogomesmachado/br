@@ -99,6 +99,73 @@ Expr *ast_expr_call(const char *name, size_t name_len, Expr **args, size_t nargs
     return e;
 }
 
+Expr *ast_clone_expr(const Expr *e)
+{
+    if (!e) return NULL;
+    Expr *c = alloc_expr(e->kind, e->line, e->col);
+    c->eval_type = e->eval_type;
+    switch (e->kind) {
+        case EXPR_INT_LIT:
+            c->as.int_lit = e->as.int_lit;
+            break;
+        case EXPR_STR_LIT:
+            c->as.str_lit.data = (char *)br_xmalloc(e->as.str_lit.len);
+            memcpy(c->as.str_lit.data, e->as.str_lit.data, e->as.str_lit.len);
+            c->as.str_lit.len = e->as.str_lit.len;
+            c->as.str_lit.label_id = -1;
+            break;
+        case EXPR_NULL:
+            break;
+        case EXPR_VAR:
+            c->as.var.name       = br_xstrndup(e->as.var.name, strlen(e->as.var.name));
+            c->as.var.rbp_offset = e->as.var.rbp_offset;
+            c->as.var.is_global  = e->as.var.is_global;
+            break;
+        case EXPR_INDEX:
+            c->as.index.name        = br_xstrndup(e->as.index.name, strlen(e->as.index.name));
+            c->as.index.index       = ast_clone_expr(e->as.index.index);
+            c->as.index.base_offset = e->as.index.base_offset;
+            c->as.index.array_len   = e->as.index.array_len;
+            c->as.index.via_pointer = e->as.index.via_pointer;
+            c->as.index.is_global   = e->as.index.is_global;
+            break;
+        case EXPR_FIELD:
+            c->as.field.var_name         = br_xstrndup(e->as.field.var_name, strlen(e->as.field.var_name));
+            c->as.field.field_name       = br_xstrndup(e->as.field.field_name, strlen(e->as.field.field_name));
+            c->as.field.rbp_offset       = e->as.field.rbp_offset;
+            c->as.field.field_byte_offset= e->as.field.field_byte_offset;
+            c->as.field.via_pointer      = e->as.field.via_pointer;
+            c->as.field.is_global        = e->as.field.is_global;
+            break;
+        case EXPR_ASSIGN:
+            c->as.assign.target = ast_clone_expr(e->as.assign.target);
+            c->as.assign.value  = ast_clone_expr(e->as.assign.value);
+            break;
+        case EXPR_BINOP:
+            c->as.binop.op  = e->as.binop.op;
+            c->as.binop.lhs = ast_clone_expr(e->as.binop.lhs);
+            c->as.binop.rhs = ast_clone_expr(e->as.binop.rhs);
+            break;
+        case EXPR_UNARY:
+            c->as.unary.op      = e->as.unary.op;
+            c->as.unary.operand = ast_clone_expr(e->as.unary.operand);
+            break;
+        case EXPR_CALL:
+            c->as.call.name  = br_xstrndup(e->as.call.name, strlen(e->as.call.name));
+            c->as.call.nargs = e->as.call.nargs;
+            if (e->as.call.nargs > 0) {
+                c->as.call.args = (Expr **)br_xmalloc(e->as.call.nargs * sizeof(Expr *));
+                for (size_t i = 0; i < e->as.call.nargs; i++) {
+                    c->as.call.args[i] = ast_clone_expr(e->as.call.args[i]);
+                }
+            } else {
+                c->as.call.args = NULL;
+            }
+            break;
+    }
+    return c;
+}
+
 /* ------------------------------ comandos ------------------------------ */
 
 static Stmt *alloc_stmt(StmtKind kind, int line, int col)

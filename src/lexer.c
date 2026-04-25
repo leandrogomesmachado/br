@@ -266,13 +266,24 @@ Token lexer_next(Lexer *lx)
         case ':': return make_tok(TK_COLON,   start, 1, start_line, start_col);
         case ',': return make_tok(TK_COMMA,   start, 1, start_line, start_col);
         case '.': return make_tok(TK_DOT,     start, 1, start_line, start_col);
-        case '+': return make_tok(TK_PLUS,    start, 1, start_line, start_col);
+        case '+':
+            if (c2 == '+') { advance_ch(lx); return make_tok(TK_PLUS_PLUS,    start, 2, start_line, start_col); }
+            if (c2 == '=') { advance_ch(lx); return make_tok(TK_PLUS_ASSIGN,  start, 2, start_line, start_col); }
+            return make_tok(TK_PLUS, start, 1, start_line, start_col);
         case '-':
-            if (c2 == '>') { advance_ch(lx); return make_tok(TK_ARROW, start, 2, start_line, start_col); }
+            if (c2 == '>') { advance_ch(lx); return make_tok(TK_ARROW,        start, 2, start_line, start_col); }
+            if (c2 == '-') { advance_ch(lx); return make_tok(TK_MINUS_MINUS,  start, 2, start_line, start_col); }
+            if (c2 == '=') { advance_ch(lx); return make_tok(TK_MINUS_ASSIGN, start, 2, start_line, start_col); }
             return make_tok(TK_MINUS, start, 1, start_line, start_col);
-        case '*': return make_tok(TK_STAR,    start, 1, start_line, start_col);
-        case '/': return make_tok(TK_SLASH,   start, 1, start_line, start_col);
-        case '%': return make_tok(TK_PERCENT, start, 1, start_line, start_col);
+        case '*':
+            if (c2 == '=') { advance_ch(lx); return make_tok(TK_STAR_ASSIGN, start, 2, start_line, start_col); }
+            return make_tok(TK_STAR, start, 1, start_line, start_col);
+        case '/':
+            if (c2 == '=') { advance_ch(lx); return make_tok(TK_SLASH_ASSIGN, start, 2, start_line, start_col); }
+            return make_tok(TK_SLASH, start, 1, start_line, start_col);
+        case '%':
+            if (c2 == '=') { advance_ch(lx); return make_tok(TK_PERCENT_ASSIGN, start, 2, start_line, start_col); }
+            return make_tok(TK_PERCENT, start, 1, start_line, start_col);
         case '=':
             if (c2 == '=') { advance_ch(lx); return make_tok(TK_EQ, start, 2, start_line, start_col); }
             return make_tok(TK_ASSIGN, start, 1, start_line, start_col);
@@ -322,6 +333,13 @@ const char *token_kind_name(TokenKind k)
         case TK_PERCENT:      return "'%'";
         case TK_ASSIGN:       return "'='";
         case TK_EQ:           return "'=='";
+        case TK_PLUS_ASSIGN:    return "'+='";
+        case TK_MINUS_ASSIGN:   return "'-='";
+        case TK_STAR_ASSIGN:    return "'*='";
+        case TK_SLASH_ASSIGN:   return "'/='";
+        case TK_PERCENT_ASSIGN: return "'%='";
+        case TK_PLUS_PLUS:      return "'++'";
+        case TK_MINUS_MINUS:    return "'--'";
         case TK_NE:           return "'!='";
         case TK_LT:           return "'<'";
         case TK_LE:           return "'<='";

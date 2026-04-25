@@ -1,0 +1,6 @@
+// erro: operando de '++'
+funcao inteiro principal() {
+    inteiro a = 1;
+    ++(a + 1);
+    retornar 0;
+}

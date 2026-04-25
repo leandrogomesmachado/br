@@ -1,0 +1,20 @@
+// Operadores de incremento e decremento, prefixo e posfixo.
+// esperado: 55
+funcao inteiro principal() {
+    inteiro soma = 0;
+    inteiro i = 0;
+    para (i = 1; i <= 10; i++) {
+        soma += i;
+    }
+    // soma == 55 apos 1..10
+    inteiro x = 5;
+    ++x;       // 6
+    x--;       // 5
+    --x;       // 4
+    x++;       // 5
+    // soma permanece 55, x volta a 5; valida que prefix/postfix nao quebram.
+    se (x != 5) {
+        retornar 1;
+    }
+    retornar soma;
+}

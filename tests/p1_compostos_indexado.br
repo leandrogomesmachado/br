@@ -1,0 +1,18 @@
+// Atribuicao composta e ++ em elementos de vetor e via ponteiro (*p).
+// esperado: 30
+funcao inteiro principal() {
+    inteiro v[3];
+    v[0] = 1;
+    v[1] = 2;
+    v[2] = 3;
+    v[0] += 10;     // 11
+    v[1] *= 5;      // 10
+    v[2]++;         // 4
+    inteiro soma = v[0] + v[1] + v[2];   // 25
+    inteiro y = 0;
+    inteiro * p = &y;
+    *p = 5;
+    *p += 1;        // y == 6
+    --(*p);         // y == 5; usado como statement, sem reutilizar valor
+    retornar soma + y;   // 25 + 5 = 30
+}

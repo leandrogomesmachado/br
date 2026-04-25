@@ -1,0 +1,6 @@
+// erro: lado esquerdo de '+='
+funcao inteiro principal() {
+    inteiro a = 1;
+    (a + 1) += 2;
+    retornar 0;
+}

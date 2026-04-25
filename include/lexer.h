@@ -46,6 +46,13 @@ typedef enum {
     TK_AMP_AMP,      /* && */
     TK_PIPE_PIPE,    /* || */
     TK_ARROW,        /* -> */
+    TK_PLUS_ASSIGN,  /* += */
+    TK_MINUS_ASSIGN, /* -= */
+    TK_STAR_ASSIGN,  /* *= */
+    TK_SLASH_ASSIGN, /* /= */
+    TK_PERCENT_ASSIGN, /* %= */
+    TK_PLUS_PLUS,    /* ++ */
+    TK_MINUS_MINUS,  /* -- */
 
     /* Palavras-chave BR (portugues sem acentos) */
     TK_KW_FUNCAO,    /* funcao */

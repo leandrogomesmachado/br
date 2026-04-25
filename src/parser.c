@@ -153,6 +153,7 @@ static char *decode_string_literal(const char *raw, size_t raw_len, size_t *out_
 static Expr *parse_expr(Parser *p);
 static Expr *parse_assignment(Parser *p);
 static Expr *parse_unary(Parser *p);
+static int   is_lvalue_expr(const Expr *e);
 
 static Expr *parse_primary(Parser *p)
 {
@@ -322,17 +323,34 @@ static Expr *parse_postfix(Parser *p)
      * v[i].x) nao sao aceitos aqui nesta versao. */
     if (e->kind == EXPR_VAR) {
         if (p->cur.kind == TK_LPAREN) {
-            return finish_call(p, e);
+            e = finish_call(p, e);
+        } else if (p->cur.kind == TK_LBRACK) {
+            e = finish_index(p, e);
+        } else if (p->cur.kind == TK_DOT) {
+            e = finish_field(p, e);
+        } else if (p->cur.kind == TK_ARROW) {
+            e = finish_arrow(p, e);
         }
-        if (p->cur.kind == TK_LBRACK) {
-            return finish_index(p, e);
+    }
+    /* Posfixo: 'lv++' / 'lv--'. Nesta versao, semanticamente equivalente
+     * ao prefixo (retorna o novo valor) por simplicidade do desugar. Em
+     * uso como statement (caso comum em 'para' e statements de expressao)
+     * o valor de retorno e' irrelevante, entao a pratica e' compativel
+     * com C. Para uso em meio de expressoes, prefira o prefixo. */
+    if (p->cur.kind == TK_PLUS_PLUS || p->cur.kind == TK_MINUS_MINUS) {
+        int line = p->cur.line, col = p->cur.col;
+        BinOp op = (p->cur.kind == TK_PLUS_PLUS) ? BINOP_ADD : BINOP_SUB;
+        const char *tok_str = token_kind_name(p->cur.kind);
+        advance(p);
+        if (!is_lvalue_expr(e)) {
+            br_fatal_at(p->path, line, col,
+                        "operando de %s deve ser uma variavel, um elemento de vetor, um campo de estrutura ou uma expressao '*p'",
+                        tok_str);
         }
-        if (p->cur.kind == TK_DOT) {
-            return finish_field(p, e);
-        }
-        if (p->cur.kind == TK_ARROW) {
-            return finish_arrow(p, e);
-        }
+        Expr *one  = ast_expr_int_lit(1, line, col);
+        Expr *load = ast_clone_expr(e);
+        Expr *bin  = ast_expr_binop(op, load, one, line, col);
+        return ast_expr_assign(e, bin, line, col);
     }
     return e;
 }
@@ -372,6 +390,24 @@ static Expr *parse_unary(Parser *p)
         advance(p);
         Expr *operand = parse_unary(p);
         return ast_expr_unary(UNOP_DEREF, operand, line, col);
+    }
+    if (p->cur.kind == TK_PLUS_PLUS || p->cur.kind == TK_MINUS_MINUS) {
+        /* Prefixo: '++lv' / '--lv' -> 'lv = lv +/- 1' (retorna o novo valor,
+         * compativel com C). 'lv' precisa ser lvalue. */
+        int line = p->cur.line, col = p->cur.col;
+        BinOp op = (p->cur.kind == TK_PLUS_PLUS) ? BINOP_ADD : BINOP_SUB;
+        const char *tok_str = token_kind_name(p->cur.kind);
+        advance(p);
+        Expr *operand = parse_unary(p);
+        if (!is_lvalue_expr(operand)) {
+            br_fatal_at(p->path, line, col,
+                        "operando de %s deve ser uma variavel, um elemento de vetor, um campo de estrutura ou uma expressao '*p'",
+                        tok_str);
+        }
+        Expr *one  = ast_expr_int_lit(1, line, col);
+        Expr *load = ast_clone_expr(operand);
+        Expr *bin  = ast_expr_binop(op, load, one, line, col);
+        return ast_expr_assign(operand, bin, line, col);
     }
     return parse_postfix(p);
 }
@@ -480,6 +516,21 @@ static int is_lvalue_expr(const Expr *e)
     return 0;
 }
 
+/* Mapeia tokens de atribuicao composta para o BinOp correspondente.
+ * Retorna 1 e preenche '*op' se 'k' for um operador composto reconhecido;
+ * caso contrario retorna 0. */
+static int compound_assign_op(TokenKind k, BinOp *op)
+{
+    switch (k) {
+        case TK_PLUS_ASSIGN:    *op = BINOP_ADD; return 1;
+        case TK_MINUS_ASSIGN:   *op = BINOP_SUB; return 1;
+        case TK_STAR_ASSIGN:    *op = BINOP_MUL; return 1;
+        case TK_SLASH_ASSIGN:   *op = BINOP_DIV; return 1;
+        case TK_PERCENT_ASSIGN: *op = BINOP_MOD; return 1;
+        default: return 0;
+    }
+}
+
 static Expr *parse_assignment(Parser *p)
 {
     Expr *lhs = parse_logical_or(p);
@@ -492,6 +543,21 @@ static Expr *parse_assignment(Parser *p)
         advance(p);
         Expr *rhs = parse_assignment(p);
         return ast_expr_assign(lhs, rhs, line, col);
+    }
+    BinOp cop;
+    if (compound_assign_op(p->cur.kind, &cop)) {
+        if (!is_lvalue_expr(lhs)) {
+            br_fatal_at(p->path, p->cur.line, p->cur.col,
+                        "lado esquerdo de %s deve ser uma variavel, um elemento de vetor, um campo de estrutura ou uma expressao '*p'",
+                        token_kind_name(p->cur.kind));
+        }
+        int line = p->cur.line, col = p->cur.col;
+        advance(p);
+        Expr *rhs = parse_assignment(p);
+        /* Acucar: 'a OP= b' -> 'a = a OP b' (clona 'a' para load + store). */
+        Expr *lhs_load = ast_clone_expr(lhs);
+        Expr *combined = ast_expr_binop(cop, lhs_load, rhs, line, col);
+        return ast_expr_assign(lhs, combined, line, col);
     }
     return lhs;
 }
