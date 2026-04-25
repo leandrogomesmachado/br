@@ -1,0 +1,10 @@
+// erro: comparacao mistura inteiro e ponteiro
+// Comparar inteiro com ponteiro deve falhar; use 'nulo' para o caso especial.
+funcao inteiro principal() {
+    inteiro x = 0;
+    inteiro *p = &x;
+    se (p == 1) {
+        retornar 1;
+    }
+    retornar 0;
+}

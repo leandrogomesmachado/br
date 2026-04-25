@@ -1,6 +1,7 @@
 #include "resolver.h"
 #include "utils.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -12,6 +13,10 @@ typedef struct {
     const char *name;        /* nao-dono (aponta para FuncDecl::name) */
     size_t      nparams;
     BrType      return_type; /* tipo de retorno, para propagacao em EXPR_CALL */
+    /* Ponteiro nao-dono para o vetor de parametros do FuncDecl, usado para
+     * validar tipos de argumentos em chamadas. NULL para builtins (cuja
+     * checagem de argumentos e' relaxada e feita caso a caso). */
+    const Param *params;
 } FuncSig;
 
 typedef struct {
@@ -42,12 +47,14 @@ static const FuncSig *ftab_find(const FuncTable *t, const char *name)
     return NULL;
 }
 
-static void ftab_add(FuncTable *t, const char *name, size_t nparams, BrType rt)
+static void ftab_add(FuncTable *t, const char *name, size_t nparams, BrType rt,
+                     const Param *params)
 {
     t->items = (FuncSig *)br_xrealloc(t->items, (t->len + 1) * sizeof(FuncSig));
     t->items[t->len].name        = name;
     t->items[t->len].nparams     = nparams;
     t->items[t->len].return_type = rt;
+    t->items[t->len].params      = params;
     t->len++;
 }
 
@@ -210,10 +217,84 @@ typedef struct {
     const StructTable *stab;
     Scope             *scope;
     const char        *path;
+    const FuncDecl    *cur_func;  /* funcao sendo resolvida; NULL fora */
 } RCtx;
 
 static void resolve_expr(RCtx *c, Expr *e);
 static void resolve_stmt(RCtx *c, Stmt *s);
+
+/* --------------------------------------------------------------------- *
+ * Compatibilidade de tipos (G.4 - type system hardening).
+ * --------------------------------------------------------------------- */
+
+static int br_type_is_numeric_scalar(BrType t)
+{
+    return t.ptr_depth == 0 &&
+           (t.base == BR_BASE_INTEIRO || t.base == BR_BASE_CARACTERE);
+}
+
+static int br_type_is_void_ptr(BrType t)
+{
+    return t.base == BR_BASE_VAZIO && t.ptr_depth >= 1;
+}
+
+/* Compatibilidade de tipos para atribuicao, inicializacao, retorno,
+ * passagem de argumento e cases analogos. Regras:
+ *   - numericos escalares (inteiro/caractere) sao mutuamente atribuiveis;
+ *   - ponteiros sao atribuiveis se forem do mesmo tipo, ou se um dos lados
+ *     e' 'vazio *' (qualquer profundidade), o que cobre 'nulo' e o retorno
+ *     de 'alocar';
+ *   - estruturas por valor nao sao atribuiveis nesta versao (nao ha
+ *     copia struct-by-value). */
+static int br_types_assignable(BrType target, BrType value)
+{
+    if (br_type_is_numeric_scalar(target) && br_type_is_numeric_scalar(value)) {
+        return 1;
+    }
+    if (br_type_is_pointer(target) && br_type_is_pointer(value)) {
+        if (br_type_is_void_ptr(target) || br_type_is_void_ptr(value)) {
+            return 1;
+        }
+        return br_type_eq(target, value);
+    }
+    return 0;
+}
+
+/* Tipos validos como condicao de 'se', 'enquanto', 'para' e operandos
+ * de '&&', '||', '!': inteiros/caracteres ou ponteiros (truthiness).
+ * Valores estruturais nao sao validos. */
+static int br_type_is_boolable(BrType t)
+{
+    return br_type_is_numeric_scalar(t) || br_type_is_pointer(t);
+}
+
+/* Escreve descricao textual do tipo em buf. Util em mensagens de erro. */
+static void br_type_describe(BrType t, char *buf, size_t n)
+{
+    const char *base = "?";
+    switch (t.base) {
+        case BR_BASE_INTEIRO:   base = "inteiro";   break;
+        case BR_BASE_CARACTERE: base = "caractere"; break;
+        case BR_BASE_VAZIO:     base = "vazio";     break;
+        case BR_BASE_ESTRUTURA: base = NULL;        break;
+    }
+    if (t.base == BR_BASE_ESTRUTURA) {
+        const char *nm = t.struct_decl ? t.struct_decl->name : "?";
+        snprintf(buf, n, "estrutura %s", nm);
+    } else {
+        snprintf(buf, n, "%s", base);
+    }
+    /* Anexa estrelas correspondentes a ptr_depth. */
+    size_t len = strlen(buf);
+    for (int i = 0; i < t.ptr_depth && len + 2 < n; i++) {
+        buf[len++] = ' ';
+        buf[len++] = '*';
+        buf[len]   = '\0';
+        /* Cada ' *' nao se acumula em uma sequencia '* *', porque a
+         * convencao em mensagens de erro e' 'inteiro *', 'inteiro * *'
+         * etc. Manter separado e' deliberado para legibilidade. */
+    }
+}
 
 /* Nomes das funcoes embutidas (builtins) que o codegen intercepta.
  * Sao registradas no FuncTable para que chamadas a elas passem pelas
@@ -246,6 +327,33 @@ static int is_builtin(const char *name)
 
 /* Tipo utilitario curto usado em varios lugares. */
 static BrType tY_int(void) { return br_type_scalar(BR_BASE_INTEIRO); }
+
+/* Reporta incompatibilidade de tipo formatando ambos os lados. */
+static void typecheck_assign_or_die(RCtx *c, BrType target, BrType value,
+                                    int line, int col, const char *ctx)
+{
+    if (br_types_assignable(target, value)) {
+        return;
+    }
+    char tbuf[64], vbuf[64];
+    br_type_describe(target, tbuf, sizeof(tbuf));
+    br_type_describe(value,  vbuf, sizeof(vbuf));
+    br_fatal_at(c->path, line, col,
+                "%s: tipo incompativel ('%s' esperado, '%s' fornecido)",
+                ctx, tbuf, vbuf);
+}
+
+static void typecheck_boolable_or_die(RCtx *c, BrType t, int line, int col,
+                                      const char *ctx)
+{
+    if (br_type_is_boolable(t)) {
+        return;
+    }
+    char tbuf[64];
+    br_type_describe(t, tbuf, sizeof(tbuf));
+    br_fatal_at(c->path, line, col,
+                "%s: tipo '%s' nao pode ser usado como condicao", ctx, tbuf);
+}
 
 static void resolve_expr(RCtx *c, Expr *e)
 {
@@ -371,6 +479,10 @@ static void resolve_expr(RCtx *c, Expr *e)
         case EXPR_ASSIGN:
             resolve_expr(c, e->as.assign.target);
             resolve_expr(c, e->as.assign.value);
+            typecheck_assign_or_die(c,
+                e->as.assign.target->eval_type,
+                e->as.assign.value->eval_type,
+                e->line, e->col, "atribuicao");
             e->eval_type = e->as.assign.target->eval_type;
             break;
         case EXPR_BINOP: {
@@ -414,10 +526,31 @@ static void resolve_expr(RCtx *c, Expr *e)
                     }
                     e->eval_type = tY_int();
                     break;
+                case BINOP_AND:
+                case BINOP_OR:
+                    /* '&&' e '||' sao 'boolable' nos dois lados (numerico
+                     * escalar ou ponteiro). O resultado e' sempre 'inteiro'
+                     * (0 ou 1). */
+                    typecheck_boolable_or_die(c, lt, e->line, e->col,
+                        e->as.binop.op == BINOP_AND ? "operando esquerdo de '&&'"
+                                                     : "operando esquerdo de '||'");
+                    typecheck_boolable_or_die(c, rt, e->line, e->col,
+                        e->as.binop.op == BINOP_AND ? "operando direito de '&&'"
+                                                     : "operando direito de '||'");
+                    e->eval_type = tY_int();
+                    break;
                 default:
+                    /* MUL/DIV/MOD: ambos operandos devem ser numericos
+                     * escalares; aritmetica com ponteiros nao faz sentido
+                     * para essas operacoes. */
                     if (lp || rp) {
                         br_fatal_at(c->path, e->line, e->col,
-                                    "operador binario nao suportado em ponteiros");
+                                    "operador aritmetico nao suportado em ponteiros");
+                    }
+                    if (!br_type_is_numeric_scalar(lt) ||
+                        !br_type_is_numeric_scalar(rt)) {
+                        br_fatal_at(c->path, e->line, e->col,
+                                    "operador aritmetico requer operandos inteiros ou caracteres");
                     }
                     e->eval_type = tY_int();
                     break;
@@ -452,10 +585,22 @@ static void resolve_expr(RCtx *c, Expr *e)
             }
             resolve_expr(c, e->as.unary.operand);
             switch (e->as.unary.op) {
-                case UNOP_NEG:
-                case UNOP_NOT:
+                case UNOP_NEG: {
+                    BrType ot = e->as.unary.operand->eval_type;
+                    if (!br_type_is_numeric_scalar(ot)) {
+                        br_fatal_at(c->path, e->line, e->col,
+                                    "operador unario '-' requer inteiro ou caractere");
+                    }
                     e->eval_type = tY_int();
                     break;
+                }
+                case UNOP_NOT: {
+                    BrType ot = e->as.unary.operand->eval_type;
+                    typecheck_boolable_or_die(c, ot, e->line, e->col,
+                                              "operando de '!'");
+                    e->eval_type = tY_int();
+                    break;
+                }
                 case UNOP_ADDR: {
                     BrType t = e->as.unary.operand->eval_type;
                     /* Preserva struct_decl quando aplicavel. */
@@ -505,6 +650,50 @@ static void resolve_expr(RCtx *c, Expr *e)
             for (size_t i = 0; i < e->as.call.nargs; i++) {
                 resolve_expr(c, e->as.call.args[i]);
             }
+            /* Valida tipos de cada argumento contra o parametro
+             * correspondente. Para builtins (sig->params == NULL),
+             * aplica regras especificas a cada um. */
+            if (sig->params) {
+                for (size_t i = 0; i < e->as.call.nargs; i++) {
+                    BrType pt = sig->params[i].type;
+                    BrType at = e->as.call.args[i]->eval_type;
+                    char ctx[96];
+                    snprintf(ctx, sizeof(ctx),
+                             "argumento %zu de '%s'", i + 1, e->as.call.name);
+                    typecheck_assign_or_die(c, pt, at,
+                        e->as.call.args[i]->line,
+                        e->as.call.args[i]->col, ctx);
+                }
+            } else {
+                /* Builtins. */
+                if (strcmp(e->as.call.name, "escrever_inteiro") == 0 ||
+                    strcmp(e->as.call.name, "escrever_caractere") == 0 ||
+                    strcmp(e->as.call.name, "alocar") == 0) {
+                    BrType at = e->as.call.args[0]->eval_type;
+                    if (!br_type_is_numeric_scalar(at)) {
+                        char ab[64];
+                        br_type_describe(at, ab, sizeof(ab));
+                        br_fatal_at(c->path, e->as.call.args[0]->line,
+                                    e->as.call.args[0]->col,
+                                    "argumento de '%s' deve ser inteiro ou caractere ('%s' fornecido)",
+                                    e->as.call.name, ab);
+                    }
+                } else if (strcmp(e->as.call.name, "liberar") == 0) {
+                    BrType a0 = e->as.call.args[0]->eval_type;
+                    BrType a1 = e->as.call.args[1]->eval_type;
+                    if (!br_type_is_pointer(a0)) {
+                        br_fatal_at(c->path, e->as.call.args[0]->line,
+                                    e->as.call.args[0]->col,
+                                    "primeiro argumento de 'liberar' deve ser ponteiro");
+                    }
+                    if (!br_type_is_numeric_scalar(a1)) {
+                        br_fatal_at(c->path, e->as.call.args[1]->line,
+                                    e->as.call.args[1]->col,
+                                    "segundo argumento de 'liberar' deve ser inteiro ou caractere");
+                    }
+                }
+                /* escrever_texto ja foi validado acima (literal de string). */
+            }
             e->eval_type = sig->return_type;
             break;
         }
@@ -523,13 +712,42 @@ static void resolve_block(RCtx *c, Block *b)
 static void resolve_stmt(RCtx *c, Stmt *s)
 {
     switch (s->kind) {
-        case STMT_RETURN:
-            resolve_expr(c, s->as.ret_expr);
+        case STMT_RETURN: {
+            BrType rt = c->cur_func ? c->cur_func->return_type : tY_int();
+            int void_ret = (rt.base == BR_BASE_VAZIO && rt.ptr_depth == 0);
+            if (s->as.ret_expr) {
+                resolve_expr(c, s->as.ret_expr);
+                if (void_ret) {
+                    br_fatal_at(c->path, s->line, s->col,
+                                "funcao com retorno 'vazio' nao pode retornar valor");
+                }
+                typecheck_assign_or_die(c, rt, s->as.ret_expr->eval_type,
+                                        s->line, s->col, "retorno");
+            } else {
+                if (!void_ret) {
+                    br_fatal_at(c->path, s->line, s->col,
+                                "'retornar' sem valor em funcao com retorno nao-vazio");
+                }
+            }
             break;
+        }
         case STMT_VAR_DECL: {
             /* Avalia o inicializador no escopo anterior (antes da propria decl)
              * para impedir 'inteiro x = x;'. */
             resolve_expr(c, s->as.var_decl.init);
+            if (s->as.var_decl.init) {
+                if (s->as.var_decl.array_len > 0) {
+                    /* Inicializador para vetor nao e suportado nesta versao;
+                     * o parser ja proibe sintaticamente, mas defendemos
+                     * contra regressoes mantendo o erro. */
+                    br_fatal_at(c->path, s->line, s->col,
+                                "inicializacao de vetor nao suportada");
+                }
+                typecheck_assign_or_die(c, s->as.var_decl.type,
+                                        s->as.var_decl.init->eval_type,
+                                        s->line, s->col,
+                                        "inicializacao de variavel");
+            }
             int off = scope_declare(c->scope, s->as.var_decl.name,
                                     s->as.var_decl.type,
                                     s->as.var_decl.array_len, NULL,
@@ -559,6 +777,8 @@ static void resolve_stmt(RCtx *c, Stmt *s)
             break;
         case STMT_IF:
             resolve_expr(c, s->as.if_s.cond);
+            typecheck_boolable_or_die(c, s->as.if_s.cond->eval_type,
+                                      s->line, s->col, "condicao de 'se'");
             resolve_stmt(c, s->as.if_s.then_branch);
             if (s->as.if_s.else_branch) {
                 resolve_stmt(c, s->as.if_s.else_branch);
@@ -566,10 +786,16 @@ static void resolve_stmt(RCtx *c, Stmt *s)
             break;
         case STMT_WHILE:
             resolve_expr(c, s->as.while_s.cond);
+            typecheck_boolable_or_die(c, s->as.while_s.cond->eval_type,
+                                      s->line, s->col, "condicao de 'enquanto'");
             resolve_stmt(c, s->as.while_s.body);
             break;
         case STMT_SWITCH:
             resolve_expr(c, s->as.switch_s.expr);
+            if (!br_type_is_numeric_scalar(s->as.switch_s.expr->eval_type)) {
+                br_fatal_at(c->path, s->line, s->col,
+                            "expressao de 'escolher' deve ser inteiro ou caractere");
+            }
             for (size_t i = 0; i < s->as.switch_s.ncases; i++) {
                 resolve_stmt(c, s->as.switch_s.cases[i].body);
             }
@@ -594,7 +820,7 @@ static void resolve_func(const FuncTable *ftab, const StructTable *stab,
 {
     Scope sc;
     scope_init(&sc);
-    RCtx ctx = { ftab, stab, &sc, path };
+    RCtx ctx = { ftab, stab, &sc, path, f };
 
     /* Declara parametros no escopo de nivel 1 (acima do corpo). */
     scope_push_block(&sc);
@@ -656,7 +882,9 @@ void resolver_run(Program *prog, const char *path)
     BrType rt_vazio_ptr = br_type_pointer(BR_BASE_VAZIO, 1);
     for (size_t i = 0; i < sizeof(BUILTINS) / sizeof(BUILTINS[0]); i++) {
         BrType rt = BUILTINS[i].kind == 1 ? rt_vazio_ptr : rt_int;
-        ftab_add(&ftab, BUILTINS[i].name, BUILTINS[i].nparams, rt);
+        /* params=NULL: builtins tem checagem de argumentos relaxada
+         * (tratada caso a caso em EXPR_CALL). */
+        ftab_add(&ftab, BUILTINS[i].name, BUILTINS[i].nparams, rt, NULL);
     }
     for (size_t i = 0; i < prog->nfuncs; i++) {
         FuncDecl *f = prog->funcs[i];
@@ -668,7 +896,7 @@ void resolver_run(Program *prog, const char *path)
             br_fatal_at(path, f->line, f->col,
                         "funcao '%s' redefinida", f->name);
         }
-        ftab_add(&ftab, f->name, f->nparams, f->return_type);
+        ftab_add(&ftab, f->name, f->nparams, f->return_type, f->params);
     }
 
     /* Checa entrada 'principal'. */

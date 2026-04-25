@@ -1,0 +1,7 @@
+// erro: inicializacao de variavel
+// Tipo do inicializador incompativel com o tipo declarado.
+funcao inteiro principal() {
+    inteiro x = 5;
+    inteiro *p = x;
+    retornar 0;
+}

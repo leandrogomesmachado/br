@@ -1,0 +1,11 @@
+// erro: argumento 1 de 'soma'
+// Passar um ponteiro onde se espera inteiro deve falhar.
+funcao inteiro soma(inteiro a, inteiro b) {
+    retornar a + b;
+}
+
+funcao inteiro principal() {
+    inteiro x = 1;
+    inteiro *p = &x;
+    retornar soma(p, 2);
+}

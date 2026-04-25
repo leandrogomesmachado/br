@@ -1,0 +1,8 @@
+// erro: operador aritmetico nao suportado em ponteiros
+// MUL/DIV/MOD em ponteiros sao invalidos.
+funcao inteiro principal() {
+    inteiro x = 1;
+    inteiro *p = &x;
+    inteiro *q = p * 2;
+    retornar 0;
+}

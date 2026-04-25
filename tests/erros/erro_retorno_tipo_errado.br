@@ -1,0 +1,10 @@
+// erro: retorno
+// Funcao que retorna inteiro nao pode retornar um ponteiro.
+funcao inteiro pega_x() {
+    inteiro x = 7;
+    retornar &x;
+}
+
+funcao inteiro principal() {
+    retornar pega_x();
+}

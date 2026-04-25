@@ -1,0 +1,11 @@
+// erro: 'escolher' deve ser inteiro ou caractere
+// Switch sobre ponteiro nao e' permitido.
+funcao inteiro principal() {
+    inteiro x = 5;
+    inteiro *p = &x;
+    escolher (p) {
+        caso 0: retornar 1;
+        senao:  retornar 2;
+    }
+    retornar 0;
+}

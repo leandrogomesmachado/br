@@ -1,0 +1,8 @@
+// erro: tipo incompativel
+// Atribuir um ponteiro a um inteiro deve falhar.
+funcao inteiro principal() {
+    inteiro x = 0;
+    inteiro *p = &x;
+    x = p;
+    retornar x;
+}

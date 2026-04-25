@@ -1,0 +1,15 @@
+// esperado: 0
+// Caso POSITIVO: 'nulo' atribuivel a qualquer ponteiro e comparavel com qualquer
+// ponteiro. Este nao e' um erro - e' uma garantia de regressao para G.4.
+estrutura No {
+    inteiro v;
+    estrutura No *prox;
+}
+
+funcao inteiro principal() {
+    estrutura No *p = nulo;
+    se (p == nulo) {
+        retornar 0;
+    }
+    retornar 1;
+}

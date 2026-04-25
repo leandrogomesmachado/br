@@ -39,10 +39,13 @@ dirs:
 
 clean:
 	rm -rf $(OBJ_DIR) $(BIN) $(TEST_DIR)/*.s $(TEST_DIR)/*.o \
-	       $(TEST_DIR)/*.out $(TEST_DIR)/*.err $(TEST_DIR)/*.stdout $(TEST_DIR)/*.diff
+	       $(TEST_DIR)/*.out $(TEST_DIR)/*.err $(TEST_DIR)/*.stdout $(TEST_DIR)/*.diff \
+	       $(TEST_DIR)/erros/*.s $(TEST_DIR)/erros/*.o $(TEST_DIR)/erros/*.out \
+	       $(TEST_DIR)/erros/*.err
 
 test: $(BIN)
 	@./scripts/run_tests.sh
+	@./scripts/run_error_tests.sh
 
 memcheck: $(BIN)
 	@for t in $(TEST_SRCS); do \

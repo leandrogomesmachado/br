@@ -1,0 +1,10 @@
+// erro: nao pode retornar valor
+// Funcao com retorno 'vazio' nao pode retornar um valor.
+funcao vazio nada() {
+    retornar 1;
+}
+
+funcao inteiro principal() {
+    nada();
+    retornar 0;
+}

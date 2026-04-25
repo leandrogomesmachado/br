@@ -1,0 +1,11 @@
+// erro: argumento 1 de 'usa_int_ptr'
+// Ponteiros de tipos diferentes (caractere * vs inteiro *) sao incompativeis.
+funcao inteiro usa_int_ptr(inteiro *p) {
+    retornar *p;
+}
+
+funcao inteiro principal() {
+    caractere c = 'A';
+    caractere *cp = &c;
+    retornar usa_int_ptr(cp);
+}
