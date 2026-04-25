@@ -1,0 +1,15 @@
+// esperado: 0
+// Verifica numero_argumentos() e argumento(i). O test runner invoca o
+// binario sem argumentos extras, entao argc deve ser >= 1 (argv[0] = caminho
+// do programa) e argumento(0) deve ser um ponteiro nao-nulo cujo primeiro
+// caractere ('/' ou outro) seja diferente de '\0'.
+funcao inteiro principal() {
+    inteiro n = numero_argumentos();
+    se (n < 1) { retornar 1; }
+
+    caractere *prog = argumento(0);
+    se (prog == nulo) { retornar 2; }
+    se (prog[0] == '\0') { retornar 3; }
+
+    retornar 0;
+}

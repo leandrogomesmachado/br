@@ -40,6 +40,7 @@ typedef struct {
     int         uses_print_int; /* se qualquer chamada a escrever_inteiro existir */
     int         uses_alocar;    /* se houver uso de 'alocar' */
     int         uses_liberar;   /* se houver uso de 'liberar' */
+    int         uses_argv;      /* se houver uso de argumento/numero_argumentos */
 } CG;
 
 static const char *const ARG_REGS[] = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
@@ -200,13 +201,15 @@ static int intern_string(CG *g, const Expr *se)
     return id;
 }
 
-/* Emite syscall write(1, buf, len) onde buf e' o endereco de um rotulo
- * .LCstr<id> em .rodata. Nao perturba stack_depth. */
-static void gen_builtin_escrever_texto(CG *g, const Expr *e)
+/* Emite syscall write(fd, buf, len) onde buf e' o endereco de um rotulo
+ * .LCstr<id> em .rodata. fd_const passa o file descriptor (1 = stdout
+ * para 'escrever_texto', 2 = stderr para 'escrever_erro'). Nao perturba
+ * stack_depth. */
+static void gen_builtin_escrever_str(CG *g, const Expr *e, int fd_const)
 {
     const Expr *arg = e->as.call.args[0]; /* EXPR_STR_LIT, garantido pelo resolver */
     int sid = intern_string(g, arg);
-    fprintf(g->out, "    movl    $1, %%edi\n");                      /* fd = stdout */
+    fprintf(g->out, "    movl    $%d, %%edi\n", fd_const);           /* fd */
     fprintf(g->out, "    leaq    .LCstr%d(%%rip), %%rsi\n", sid);    /* buf */
     fprintf(g->out, "    movq    $%zu, %%rdx\n", arg->as.str_lit.len); /* len */
     fprintf(g->out, "    movl    $1, %%eax\n");                      /* SYS_write */
@@ -281,7 +284,11 @@ static int try_gen_builtin(CG *g, const Expr *e)
 {
     const char *name = e->as.call.name;
     if (strcmp(name, "escrever_texto") == 0) {
-        gen_builtin_escrever_texto(g, e);
+        gen_builtin_escrever_str(g, e, 1);
+        return 1;
+    }
+    if (strcmp(name, "escrever_erro") == 0) {
+        gen_builtin_escrever_str(g, e, 2);
         return 1;
     }
     if (strcmp(name, "escrever_caractere") == 0) {
@@ -300,6 +307,46 @@ static int try_gen_builtin(CG *g, const Expr *e)
     if (strcmp(name, "liberar") == 0) {
         g->uses_liberar = 1;
         gen_runtime_call(g, e, "__br_liberar", 2);
+        return 1;
+    }
+    if (strcmp(name, "abrir_arquivo") == 0) {
+        gen_runtime_call(g, e, "__br_abrir_arquivo", 3);
+        return 1;
+    }
+    if (strcmp(name, "ler_bytes") == 0) {
+        gen_runtime_call(g, e, "__br_ler_bytes", 3);
+        return 1;
+    }
+    if (strcmp(name, "escrever_bytes") == 0) {
+        gen_runtime_call(g, e, "__br_escrever_bytes", 3);
+        return 1;
+    }
+    if (strcmp(name, "fechar_arquivo") == 0) {
+        gen_runtime_call(g, e, "__br_fechar_arquivo", 1);
+        return 1;
+    }
+    if (strcmp(name, "sair") == 0) {
+        gen_runtime_call(g, e, "__br_sair", 1);
+        return 1;
+    }
+    if (strcmp(name, "numero_argumentos") == 0) {
+        g->uses_argv = 1;
+        gen_runtime_call(g, e, "__br_numero_argumentos", 0);
+        return 1;
+    }
+    if (strcmp(name, "argumento") == 0) {
+        g->uses_argv = 1;
+        gen_runtime_call(g, e, "__br_argumento", 1);
+        return 1;
+    }
+    if (strcmp(name, "ler_byte") == 0) {
+        /* ler_byte(ptr, i): byte_unsigned em ptr+i, estendido a inteiro. */
+        gen_runtime_call(g, e, "__br_ler_byte", 2);
+        return 1;
+    }
+    if (strcmp(name, "escrever_byte") == 0) {
+        /* escrever_byte(ptr, i, v): grava byte baixo de v em ptr+i. */
+        gen_runtime_call(g, e, "__br_escrever_byte", 3);
         return 1;
     }
     return 0;
@@ -349,12 +396,14 @@ static void gen_expr(CG *g, const Expr *e)
         case EXPR_NULL:
             fprintf(g->out, "    xorl    %%eax, %%eax\n");
             break;
-        case EXPR_STR_LIT:
-            /* O resolver garante que so chegamos aqui se a string nao
-             * estiver no contexto de 'escrever_texto'. Se ainda assim
-             * alguma evolucao futura deixar passar, falhamos ruidosamente. */
-            br_fatal("codegen: EXPR_STR_LIT em contexto generico (bug)");
+        case EXPR_STR_LIT: {
+            /* Literal de string em contexto de valor: produz um 'caractere *'
+             * apontando para a sequencia em .rodata, com '\0' implicito
+             * acrescentado em emit_rodata para uso como C-string. */
+            int sid = intern_string(g, e);
+            fprintf(g->out, "    leaq    .LCstr%d(%%rip), %%rax\n", sid);
             break;
+        }
         case EXPR_VAR:
             fprintf(g->out, "    movq    %d(%%rbp), %%rax\n", e->as.var.rbp_offset);
             break;
@@ -776,6 +825,124 @@ static void emit_runtime_liberar(FILE *out)
         "    ret\n");
 }
 
+/* I/O de arquivo via syscalls puras Linux x86-64. Em todos os casos o
+ * codigo de retorno do kernel chega em %rax e e' devolvido diretamente
+ * para o chamador BR; valores negativos indicam erro (-errno). */
+
+/* __br_abrir_arquivo(rdi=caminho, rsi=flags, rdx=modo) -> rax = fd | -errno */
+static void emit_runtime_abrir_arquivo(FILE *out)
+{
+    fprintf(out,
+        "    .globl  __br_abrir_arquivo\n"
+        "    .type   __br_abrir_arquivo, @function\n"
+        "__br_abrir_arquivo:\n"
+        "    movl    $2, %%eax\n"               /* SYS_open */
+        "    syscall\n"
+        "    ret\n");
+}
+
+/* __br_ler_bytes(rdi=fd, rsi=buf, rdx=n) -> rax = bytes lidos | -errno */
+static void emit_runtime_ler_bytes(FILE *out)
+{
+    fprintf(out,
+        "    .globl  __br_ler_bytes\n"
+        "    .type   __br_ler_bytes, @function\n"
+        "__br_ler_bytes:\n"
+        "    xorl    %%eax, %%eax\n"            /* SYS_read = 0 */
+        "    syscall\n"
+        "    ret\n");
+}
+
+/* __br_escrever_bytes(rdi=fd, rsi=buf, rdx=n) -> rax = bytes escritos | -errno */
+static void emit_runtime_escrever_bytes(FILE *out)
+{
+    fprintf(out,
+        "    .globl  __br_escrever_bytes\n"
+        "    .type   __br_escrever_bytes, @function\n"
+        "__br_escrever_bytes:\n"
+        "    movl    $1, %%eax\n"               /* SYS_write */
+        "    syscall\n"
+        "    ret\n");
+}
+
+/* __br_fechar_arquivo(rdi=fd) -> rax = 0 | -errno */
+static void emit_runtime_fechar_arquivo(FILE *out)
+{
+    fprintf(out,
+        "    .globl  __br_fechar_arquivo\n"
+        "    .type   __br_fechar_arquivo, @function\n"
+        "__br_fechar_arquivo:\n"
+        "    movl    $3, %%eax\n"               /* SYS_close */
+        "    syscall\n"
+        "    ret\n");
+}
+
+/* __br_sair(rdi=codigo): nunca retorna. Usa SYS_exit_group(231) para
+ * encerrar todo o processo (equivalente ao SYS_exit do _start, mas
+ * tambem encerraria threads adicionais caso existissem). */
+static void emit_runtime_sair(FILE *out)
+{
+    fprintf(out,
+        "    .globl  __br_sair\n"
+        "    .type   __br_sair, @function\n"
+        "__br_sair:\n"
+        "    movl    $231, %%eax\n"             /* SYS_exit_group */
+        "    syscall\n"
+        "    ret\n");                           /* defensivo: jamais alcancado */
+}
+
+/* __br_ler_byte(rdi=ptr, rsi=i) -> rax = (unsigned byte) *(ptr + i).
+ * O valor e' zero-estendido para 64 bits, entao 'ler_byte' devolve um
+ * inteiro entre 0 e 255 sem surpresas de sinal. */
+static void emit_runtime_ler_byte(FILE *out)
+{
+    fprintf(out,
+        "    .globl  __br_ler_byte\n"
+        "    .type   __br_ler_byte, @function\n"
+        "__br_ler_byte:\n"
+        "    movzbq  (%%rdi,%%rsi,1), %%rax\n"
+        "    ret\n");
+}
+
+/* __br_escrever_byte(rdi=ptr, rsi=i, rdx=v) -> rax = 0.
+ * Grava o byte baixo de rdx em ptr+i, descartando os 7 bytes superiores
+ * de rdx. Util para escrever em buffers retornados por 'alocar'. */
+static void emit_runtime_escrever_byte(FILE *out)
+{
+    fprintf(out,
+        "    .globl  __br_escrever_byte\n"
+        "    .type   __br_escrever_byte, @function\n"
+        "__br_escrever_byte:\n"
+        "    movb    %%dl, (%%rdi,%%rsi,1)\n"
+        "    xorl    %%eax, %%eax\n"
+        "    ret\n");
+}
+
+/* __br_numero_argumentos() -> rax = argc;
+ * __br_argumento(rdi=i)    -> rax = argv[i] (caractere *).
+ * Sem checagem de limites: e' responsabilidade do programa BR validar i
+ * usando 'numero_argumentos()' antes de indexar. */
+static void emit_runtime_argv(FILE *out)
+{
+    fprintf(out,
+        "    .globl  __br_numero_argumentos\n"
+        "    .type   __br_numero_argumentos, @function\n"
+        "__br_numero_argumentos:\n"
+        "    movq    __br_argc(%%rip), %%rax\n"
+        "    ret\n"
+        "    .globl  __br_argumento\n"
+        "    .type   __br_argumento, @function\n"
+        "__br_argumento:\n"
+        "    movq    __br_argv(%%rip), %%rax\n"
+        "    movq    (%%rax,%%rdi,8), %%rax\n"  /* argv[i] */
+        "    ret\n"
+        "    .bss\n"
+        "    .align 8\n"
+        "__br_argc: .quad 0\n"
+        "__br_argv: .quad 0\n"
+        "    .text\n");
+}
+
 /* ---------------------------- entrada -------------------------------- */
 
 static void emit_rodata(CG *g)
@@ -787,13 +954,17 @@ static void emit_rodata(CG *g)
     for (size_t i = 0; i < g->nstrs; i++) {
         const Expr *se = g->strs[i].expr;
         fprintf(g->out, ".LCstr%d:\n", g->strs[i].label_id);
-        /* Emite byte-a-byte para suportar qualquer conteudo binario. */
+        /* Emite byte-a-byte para suportar qualquer conteudo binario.
+         * Acrescenta um '\0' implicito ao final para que a mesma area
+         * de .rodata sirva tanto a 'escrever_texto' (que usa o tamanho
+         * exato str_lit.len) quanto a usos como 'caractere *' onde a
+         * string e' tratada como C-string terminada em zero. */
         fprintf(g->out, "    .byte ");
         for (size_t j = 0; j < se->as.str_lit.len; j++) {
             unsigned c = (unsigned char)se->as.str_lit.data[j];
             fprintf(g->out, "%s%u", (j == 0 ? "" : ","), c);
         }
-        fprintf(g->out, "\n");
+        fprintf(g->out, "%s0\n", se->as.str_lit.len > 0 ? "," : "");
     }
 }
 
@@ -805,6 +976,7 @@ void codegen_emit(FILE *out, const Program *prog)
         .uses_print_int = 0,
         .uses_alocar    = 0,
         .uses_liberar   = 0,
+        .uses_argv      = 0,
     };
 
     fprintf(out, "# Gerado por brc v0.0.1a\n");
@@ -823,14 +995,31 @@ void codegen_emit(FILE *out, const Program *prog)
     if (g.uses_liberar) {
         emit_runtime_liberar(out);
     }
+    /* G.5: I/O, sair e argv. Emitidos sempre porque sao baratos (algumas
+     * dezenas de bytes cada) e fica mais simples nao rastrear o uso de
+     * cada um separadamente. O linker descarta nao-utilizados. */
+    emit_runtime_abrir_arquivo(out);
+    emit_runtime_ler_bytes(out);
+    emit_runtime_escrever_bytes(out);
+    emit_runtime_fechar_arquivo(out);
+    emit_runtime_sair(out);
+    emit_runtime_ler_byte(out);
+    emit_runtime_escrever_byte(out);
+    emit_runtime_argv(out);
 
-    /* _start: chama principal e encerra via syscall exit(rax). */
+    /* _start: salva argc/argv em globais, chama principal e encerra via
+     * SYS_exit(rax). No entry de _start, o kernel coloca em [rsp]: argc;
+     * em [rsp+8]: argv[0]. RSP esta alinhado a 16 (convencao Linux). */
     fprintf(out, "    .globl  _start\n");
     fprintf(out, "_start:\n");
+    fprintf(out, "    movq    (%%rsp), %%rax\n");           /* argc */
+    fprintf(out, "    movq    %%rax, __br_argc(%%rip)\n");
+    fprintf(out, "    leaq    8(%%rsp), %%rax\n");          /* &argv[0] */
+    fprintf(out, "    movq    %%rax, __br_argv(%%rip)\n");
     fprintf(out, "    xorl    %%eax, %%eax\n");
     fprintf(out, "    call    principal\n");
     fprintf(out, "    movq    %%rax, %%rdi\n");
-    fprintf(out, "    movq    $60, %%rax\n");     /* SYS_exit */
+    fprintf(out, "    movq    $60, %%rax\n");               /* SYS_exit */
     fprintf(out, "    syscall\n");
 
     emit_rodata(&g);

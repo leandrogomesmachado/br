@@ -1,0 +1,22 @@
+// esperado: 0
+// Literal de string em contexto de valor: 'caractere *' para uma C-string
+// em .rodata com '\0' implicito ao final. O acesso byte-a-byte usa
+// 'ler_byte', porque cada 'caractere' do BR ocupa 8 bytes mas a string
+// na .rodata e' uma sequencia contigua de bytes reais.
+funcao inteiro tam(caractere *s) {
+    inteiro n = 0;
+    enquanto (ler_byte(s, n) != 0) {
+        n = n + 1;
+    }
+    retornar n;
+}
+
+funcao inteiro principal() {
+    caractere *s = "ola";
+    se (tam(s) != 3) { retornar 1; }
+    se (ler_byte(s, 0) != 'o') { retornar 2; }
+    se (ler_byte(s, 1) != 'l') { retornar 3; }
+    se (ler_byte(s, 2) != 'a') { retornar 4; }
+    se (ler_byte(s, 3) != 0)   { retornar 5; }
+    retornar 0;
+}

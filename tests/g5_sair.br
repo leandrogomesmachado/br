@@ -1,0 +1,6 @@
+// esperado: 7
+// 'sair(N)' encerra o processo imediatamente com o codigo N.
+funcao inteiro principal() {
+    sair(7);
+    retornar 99;
+}

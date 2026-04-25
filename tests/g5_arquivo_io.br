@@ -1,0 +1,38 @@
+// esperado: 0
+// Escreve 5 bytes ("abcde") em /tmp/br_test_g5.txt e le de volta para um
+// buffer alocado dinamicamente; usa 'ler_byte' para inspecionar cada byte
+// individualmente. Retorna 0 em sucesso, codigo nao-zero por falha.
+//
+// Flags POSIX:
+//   O_RDONLY                       = 0
+//   O_WRONLY | O_CREAT | O_TRUNC   = 1 | 64 | 512 = 577
+// Modo 0644 (rw-r--r--) em decimal = 420.
+
+funcao inteiro principal() {
+    caractere *caminho = "/tmp/br_test_g5.txt";
+
+    inteiro fd = abrir_arquivo(caminho, 577, 420);
+    se (fd < 0) { retornar 1; }
+
+    inteiro escritos = escrever_bytes(fd, "abcde", 5);
+    se (escritos != 5) { retornar 2; }
+
+    se (fechar_arquivo(fd) != 0) { retornar 3; }
+
+    inteiro fd2 = abrir_arquivo(caminho, 0, 0);
+    se (fd2 < 0) { retornar 4; }
+
+    vazio *buf = alocar(64);
+    inteiro lidos = ler_bytes(fd2, buf, 64);
+    se (lidos != 5) { retornar 5; }
+
+    se (ler_byte(buf, 0) != 'a') { retornar 6; }
+    se (ler_byte(buf, 1) != 'b') { retornar 7; }
+    se (ler_byte(buf, 2) != 'c') { retornar 8; }
+    se (ler_byte(buf, 3) != 'd') { retornar 9; }
+    se (ler_byte(buf, 4) != 'e') { retornar 10; }
+
+    liberar(buf, 64);
+    fechar_arquivo(fd2);
+    retornar 0;
+}

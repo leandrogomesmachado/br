@@ -306,6 +306,7 @@ static const struct {
     int         kind;
 } BUILTINS[] = {
     { "escrever_texto",     1, 0 },
+    { "escrever_erro",      1, 0 },
     { "escrever_inteiro",   1, 0 },
     { "escrever_caractere", 1, 0 },
     /* G.3: alocacao dinamica via mmap/munmap. 'alocar(bytes)' retorna um
@@ -313,6 +314,23 @@ static const struct {
      * retorna 0 em sucesso. */
     { "alocar",             1, 1 },
     { "liberar",            2, 0 },
+    /* G.5: I/O de arquivo via syscalls open/read/write/close. */
+    { "abrir_arquivo",      3, 0 },
+    { "ler_bytes",          3, 0 },
+    { "escrever_bytes",     3, 0 },
+    { "fechar_arquivo",     1, 0 },
+    /* G.5: argumentos de linha de comando. */
+    { "numero_argumentos",  0, 0 },
+    { "argumento",          1, 1 },   /* retorna 'caractere *' (kind=1 = ptr) */
+    /* G.5: terminacao explicita do programa via syscall exit_group. */
+    { "sair",               1, 0 },
+    /* G.5: acesso byte-a-byte. Cada 'caractere' do BR ocupa um slot de
+     * 8 bytes, mas buffers vindos de 'ler_bytes' / 'alocar' sao bytes
+     * contiguos. Esses dois builtins permitem ler/escrever um byte
+     * individual em qualquer endereco, indispensaveis para um lexer ou
+     * qualquer codigo que processe stream binario de bytes reais. */
+    { "ler_byte",           2, 0 },   /* ler_byte(ptr, i)        -> inteiro */
+    { "escrever_byte",      3, 0 },   /* escrever_byte(ptr,i,v)  -> inteiro */
 };
 
 static int is_builtin(const char *name)
@@ -371,10 +389,16 @@ static void resolve_expr(RCtx *c, Expr *e)
             e->eval_type = br_type_pointer(BR_BASE_VAZIO, 1);
             break;
         case EXPR_STR_LIT:
-            /* Literais de string so sao aceitaveis como argumento direto
-             * de 'escrever_texto'. Essa validacao e' aplicada em EXPR_CALL. */
-            br_fatal_at(c->path, e->line, e->col,
-                        "literal de string so pode ser usado como argumento de 'escrever_texto'");
+            /* Literais de string tem tipo 'caractere *': um ponteiro para
+             * uma sequencia de bytes em .rodata terminada com um '\0'
+             * implicito (acrescentado pelo lexer). Podem ser usados em
+             * qualquer contexto onde um 'caractere *' seja aceito.
+             *
+             * O caso especial de 'escrever_texto', que exige literal
+             * direto para conhecer o comprimento em tempo de compilacao,
+             * e' validado especificamente em EXPR_CALL antes da chamada
+             * generica de resolve_expr nos argumentos. */
+            e->eval_type = br_type_pointer(BR_BASE_CARACTERE, 1);
             break;
         case EXPR_VAR: {
             const ScopeEntry *se = scope_lookup_entry(c->scope, e->as.var.name);
@@ -638,11 +662,13 @@ static void resolve_expr(RCtx *c, Expr *e)
                             "funcao '%s' espera %zu argumento(s), %zu fornecido(s)",
                             e->as.call.name, sig->nparams, e->as.call.nargs);
             }
-            if (strcmp(e->as.call.name, "escrever_texto") == 0) {
+            if (strcmp(e->as.call.name, "escrever_texto") == 0 ||
+                strcmp(e->as.call.name, "escrever_erro") == 0) {
                 if (e->as.call.nargs != 1 ||
                     e->as.call.args[0]->kind != EXPR_STR_LIT) {
                     br_fatal_at(c->path, e->line, e->col,
-                                "'escrever_texto' requer um literal de string como argumento");
+                                "'%s' requer um literal de string como argumento",
+                                e->as.call.name);
                 }
                 e->eval_type = sig->return_type;
                 break;
@@ -665,10 +691,17 @@ static void resolve_expr(RCtx *c, Expr *e)
                         e->as.call.args[i]->col, ctx);
                 }
             } else {
-                /* Builtins. */
-                if (strcmp(e->as.call.name, "escrever_inteiro") == 0 ||
-                    strcmp(e->as.call.name, "escrever_caractere") == 0 ||
-                    strcmp(e->as.call.name, "alocar") == 0) {
+                /* Builtins (sig->params == NULL): validacao caso a caso.
+                 * 'escrever_texto'/'escrever_erro' ja foram validados acima
+                 * (exigem literal de string direto). */
+                const char *bn = e->as.call.name;
+                if (strcmp(bn, "escrever_inteiro") == 0 ||
+                    strcmp(bn, "escrever_caractere") == 0 ||
+                    strcmp(bn, "alocar") == 0 ||
+                    strcmp(bn, "fechar_arquivo") == 0 ||
+                    strcmp(bn, "sair") == 0 ||
+                    strcmp(bn, "argumento") == 0) {
+                    /* Builtins de 1 argumento numerico escalar. */
                     BrType at = e->as.call.args[0]->eval_type;
                     if (!br_type_is_numeric_scalar(at)) {
                         char ab[64];
@@ -676,9 +709,9 @@ static void resolve_expr(RCtx *c, Expr *e)
                         br_fatal_at(c->path, e->as.call.args[0]->line,
                                     e->as.call.args[0]->col,
                                     "argumento de '%s' deve ser inteiro ou caractere ('%s' fornecido)",
-                                    e->as.call.name, ab);
+                                    bn, ab);
                     }
-                } else if (strcmp(e->as.call.name, "liberar") == 0) {
+                } else if (strcmp(bn, "liberar") == 0) {
                     BrType a0 = e->as.call.args[0]->eval_type;
                     BrType a1 = e->as.call.args[1]->eval_type;
                     if (!br_type_is_pointer(a0)) {
@@ -691,8 +724,73 @@ static void resolve_expr(RCtx *c, Expr *e)
                                     e->as.call.args[1]->col,
                                     "segundo argumento de 'liberar' deve ser inteiro ou caractere");
                     }
+                } else if (strcmp(bn, "abrir_arquivo") == 0) {
+                    /* (caminho: caractere*, flags: int, modo: int) */
+                    BrType a0 = e->as.call.args[0]->eval_type;
+                    BrType a1 = e->as.call.args[1]->eval_type;
+                    BrType a2 = e->as.call.args[2]->eval_type;
+                    if (!br_type_is_pointer(a0)) {
+                        br_fatal_at(c->path, e->as.call.args[0]->line,
+                                    e->as.call.args[0]->col,
+                                    "primeiro argumento de 'abrir_arquivo' deve ser ponteiro (caminho)");
+                    }
+                    if (!br_type_is_numeric_scalar(a1) ||
+                        !br_type_is_numeric_scalar(a2)) {
+                        br_fatal_at(c->path, e->line, e->col,
+                                    "argumentos 2 e 3 de 'abrir_arquivo' devem ser inteiros (flags, modo)");
+                    }
+                } else if (strcmp(bn, "ler_byte") == 0) {
+                    /* (ptr, i: int) -> int */
+                    BrType a0 = e->as.call.args[0]->eval_type;
+                    BrType a1 = e->as.call.args[1]->eval_type;
+                    if (!br_type_is_pointer(a0)) {
+                        br_fatal_at(c->path, e->as.call.args[0]->line,
+                                    e->as.call.args[0]->col,
+                                    "primeiro argumento de 'ler_byte' deve ser ponteiro");
+                    }
+                    if (!br_type_is_numeric_scalar(a1)) {
+                        br_fatal_at(c->path, e->as.call.args[1]->line,
+                                    e->as.call.args[1]->col,
+                                    "segundo argumento de 'ler_byte' deve ser inteiro");
+                    }
+                } else if (strcmp(bn, "escrever_byte") == 0) {
+                    /* (ptr, i: int, v: int) -> int */
+                    BrType a0 = e->as.call.args[0]->eval_type;
+                    BrType a1 = e->as.call.args[1]->eval_type;
+                    BrType a2 = e->as.call.args[2]->eval_type;
+                    if (!br_type_is_pointer(a0)) {
+                        br_fatal_at(c->path, e->as.call.args[0]->line,
+                                    e->as.call.args[0]->col,
+                                    "primeiro argumento de 'escrever_byte' deve ser ponteiro");
+                    }
+                    if (!br_type_is_numeric_scalar(a1) ||
+                        !br_type_is_numeric_scalar(a2)) {
+                        br_fatal_at(c->path, e->line, e->col,
+                                    "argumentos 2 e 3 de 'escrever_byte' devem ser inteiros");
+                    }
+                } else if (strcmp(bn, "ler_bytes") == 0 ||
+                           strcmp(bn, "escrever_bytes") == 0) {
+                    /* (fd: int, buf: ptr, n: int) */
+                    BrType a0 = e->as.call.args[0]->eval_type;
+                    BrType a1 = e->as.call.args[1]->eval_type;
+                    BrType a2 = e->as.call.args[2]->eval_type;
+                    if (!br_type_is_numeric_scalar(a0)) {
+                        br_fatal_at(c->path, e->as.call.args[0]->line,
+                                    e->as.call.args[0]->col,
+                                    "primeiro argumento de '%s' deve ser inteiro (fd)", bn);
+                    }
+                    if (!br_type_is_pointer(a1)) {
+                        br_fatal_at(c->path, e->as.call.args[1]->line,
+                                    e->as.call.args[1]->col,
+                                    "segundo argumento de '%s' deve ser ponteiro (buffer)", bn);
+                    }
+                    if (!br_type_is_numeric_scalar(a2)) {
+                        br_fatal_at(c->path, e->as.call.args[2]->line,
+                                    e->as.call.args[2]->col,
+                                    "terceiro argumento de '%s' deve ser inteiro (n)", bn);
+                    }
                 }
-                /* escrever_texto ja foi validado acima (literal de string). */
+                /* numero_argumentos: nargs == 0, nada a validar. */
             }
             e->eval_type = sig->return_type;
             break;

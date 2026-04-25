@@ -1,0 +1,7 @@
+// esperado: 0
+// 'escrever_erro' emite o literal em fd=2 (stderr). Confirma que o stdout
+// fica vazio (este teste nao tem .saida) e que o programa retorna 0.
+funcao inteiro principal() {
+    escrever_erro("aviso: nada de errado, so um teste\n");
+    retornar 0;
+}
