@@ -1,0 +1,23 @@
+// Aplicacao tipica: empacotar 4 bytes em um inteiro de 32 bits e
+// desempacotar de volta. Exercita & | << >> em conjunto.
+// esperado: 0
+funcao inteiro empacotar(inteiro b0, inteiro b1, inteiro b2, inteiro b3) {
+    retornar (b0 & 255)
+         | ((b1 & 255) << 8)
+         | ((b2 & 255) << 16)
+         | ((b3 & 255) << 24);
+}
+
+funcao inteiro byte_n(inteiro w, inteiro n) {
+    retornar (w >> (n * 8)) & 255;
+}
+
+funcao inteiro principal() {
+    inteiro w = empacotar(120, 86, 52, 18);  // 0x12345678
+    se (w != 305419896) { retornar 1; }      // == 0x12345678
+    se (byte_n(w, 0) != 120) { retornar 2; }
+    se (byte_n(w, 1) != 86)  { retornar 3; }
+    se (byte_n(w, 2) != 52)  { retornar 4; }
+    se (byte_n(w, 3) != 18)  { retornar 5; }
+    retornar 0;
+}

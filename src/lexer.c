@@ -291,17 +291,40 @@ Token lexer_next(Lexer *lx)
             if (c2 == '=') { advance_ch(lx); return make_tok(TK_NE, start, 2, start_line, start_col); }
             return make_tok(TK_BANG, start, 1, start_line, start_col);
         case '<':
+            if (c2 == '<') {
+                advance_ch(lx);
+                if (peek_ch_at(lx, 0) == '=') {
+                    advance_ch(lx);
+                    return make_tok(TK_LSHIFT_ASSIGN, start, 3, start_line, start_col);
+                }
+                return make_tok(TK_LSHIFT, start, 2, start_line, start_col);
+            }
             if (c2 == '=') { advance_ch(lx); return make_tok(TK_LE, start, 2, start_line, start_col); }
             return make_tok(TK_LT, start, 1, start_line, start_col);
         case '>':
+            if (c2 == '>') {
+                advance_ch(lx);
+                if (peek_ch_at(lx, 0) == '=') {
+                    advance_ch(lx);
+                    return make_tok(TK_RSHIFT_ASSIGN, start, 3, start_line, start_col);
+                }
+                return make_tok(TK_RSHIFT, start, 2, start_line, start_col);
+            }
             if (c2 == '=') { advance_ch(lx); return make_tok(TK_GE, start, 2, start_line, start_col); }
             return make_tok(TK_GT, start, 1, start_line, start_col);
         case '&':
             if (c2 == '&') { advance_ch(lx); return make_tok(TK_AMP_AMP, start, 2, start_line, start_col); }
+            if (c2 == '=') { advance_ch(lx); return make_tok(TK_AMP_ASSIGN, start, 2, start_line, start_col); }
             return make_tok(TK_AMP, start, 1, start_line, start_col);
         case '|':
             if (c2 == '|') { advance_ch(lx); return make_tok(TK_PIPE_PIPE, start, 2, start_line, start_col); }
-            break;
+            if (c2 == '=') { advance_ch(lx); return make_tok(TK_PIPE_ASSIGN, start, 2, start_line, start_col); }
+            return make_tok(TK_PIPE, start, 1, start_line, start_col);
+        case '^':
+            if (c2 == '=') { advance_ch(lx); return make_tok(TK_CARET_ASSIGN, start, 2, start_line, start_col); }
+            return make_tok(TK_CARET, start, 1, start_line, start_col);
+        case '~':
+            return make_tok(TK_TILDE, start, 1, start_line, start_col);
         default:  break;
     }
 
@@ -349,6 +372,16 @@ const char *token_kind_name(TokenKind k)
         case TK_AMP:          return "'&'";
         case TK_AMP_AMP:      return "'&&'";
         case TK_PIPE_PIPE:    return "'||'";
+        case TK_PIPE:         return "'|'";
+        case TK_CARET:        return "'^'";
+        case TK_TILDE:        return "'~'";
+        case TK_LSHIFT:       return "'<<'";
+        case TK_RSHIFT:       return "'>>'";
+        case TK_AMP_ASSIGN:   return "'&='";
+        case TK_PIPE_ASSIGN:  return "'|='";
+        case TK_CARET_ASSIGN: return "'^='";
+        case TK_LSHIFT_ASSIGN:return "'<<='";
+        case TK_RSHIFT_ASSIGN:return "'>>='";
         case TK_ARROW:        return "'->'";
         case TK_KW_FUNCAO:    return "'funcao'";
         case TK_KW_INTEIRO:   return "'inteiro'";

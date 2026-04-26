@@ -71,14 +71,20 @@ typedef enum {
     BINOP_ADD, BINOP_SUB, BINOP_MUL, BINOP_DIV, BINOP_MOD,
     BINOP_EQ,  BINOP_NE,
     BINOP_LT,  BINOP_LE, BINOP_GT, BINOP_GE,
-    BINOP_AND, BINOP_OR     /* '&&' e '||' com curto-circuito */
+    BINOP_AND, BINOP_OR,    /* '&&' e '||' com curto-circuito */
+    BINOP_BITAND,           /* &  (bitwise and) */
+    BINOP_BITOR,            /* |  (bitwise or)  */
+    BINOP_BITXOR,           /* ^  (bitwise xor) */
+    BINOP_SHL,              /* << (shift left logico)            */
+    BINOP_SHR               /* >> (shift right aritmetico, sinal) */
 } BinOp;
 
 typedef enum {
     UNOP_NEG,    /* -x */
     UNOP_NOT,    /* !x */
     UNOP_ADDR,   /* &x  (operando deve ser lvalue) */
-    UNOP_DEREF   /* *p  (operando deve produzir um ponteiro; tambem serve como lvalue) */
+    UNOP_DEREF,  /* *p  (operando deve produzir um ponteiro; tambem serve como lvalue) */
+    UNOP_BITNOT  /* ~x  (bitwise not) */
 } UnOp;
 
 typedef enum {

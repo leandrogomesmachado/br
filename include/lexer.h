@@ -54,6 +54,18 @@ typedef enum {
     TK_PLUS_PLUS,    /* ++ */
     TK_MINUS_MINUS,  /* -- */
 
+    /* Bitwise */
+    TK_PIPE,         /* |   (bitor)            */
+    TK_CARET,        /* ^   (bitxor)           */
+    TK_TILDE,        /* ~   (bitnot, unario)   */
+    TK_LSHIFT,       /* <<                     */
+    TK_RSHIFT,       /* >>                     */
+    TK_AMP_ASSIGN,   /* &=                     */
+    TK_PIPE_ASSIGN,  /* |=                     */
+    TK_CARET_ASSIGN, /* ^=                     */
+    TK_LSHIFT_ASSIGN,/* <<=                    */
+    TK_RSHIFT_ASSIGN,/* >>=                    */
+
     /* Palavras-chave BR (portugues sem acentos) */
     TK_KW_FUNCAO,    /* funcao */
     TK_KW_INTEIRO,   /* inteiro */

@@ -177,6 +177,30 @@ static void gen_binop_arith(CG *g, const Expr *e)
     }
 }
 
+static void gen_binop_bitwise(CG *g, const Expr *e)
+{
+    /* Avalia lhs em rax, salva; avalia rhs em rax e move para rcx;
+     * recupera lhs em rax e aplica a operacao 'rax = rax OP rcx'.
+     * Para shifts a contagem precisa estar em %cl (8 bits inferiores
+     * de %rcx); o x86 mascara automaticamente para 6 bits em modo
+     * 64-bit, entao basta usar 'salq %cl, %rax' ou 'sarq %cl, %rax'. */
+    gen_expr(g, e->as.binop.lhs);
+    emit_push_rax(g);
+    gen_expr(g, e->as.binop.rhs);
+    fprintf(g->out, "    movq    %%rax, %%rcx\n");
+    emit_pop(g, "rax");
+
+    switch (e->as.binop.op) {
+        case BINOP_BITAND: fprintf(g->out, "    andq    %%rcx, %%rax\n"); break;
+        case BINOP_BITOR:  fprintf(g->out, "    orq     %%rcx, %%rax\n"); break;
+        case BINOP_BITXOR: fprintf(g->out, "    xorq    %%rcx, %%rax\n"); break;
+        case BINOP_SHL:    fprintf(g->out, "    salq    %%cl, %%rax\n");  break;
+        case BINOP_SHR:    fprintf(g->out, "    sarq    %%cl, %%rax\n");  break;
+        default:
+            br_fatal("gen_binop_bitwise: operador nao bitwise");
+    }
+}
+
 static void gen_binop_cmp(CG *g, const Expr *e)
 {
     /* Para comparacoes de magnitude (<, <=, >, >=) entre ponteiros usamos
@@ -624,6 +648,8 @@ static void gen_expr(CG *g, const Expr *e)
             gen_expr(g, e->as.unary.operand);
             if (e->as.unary.op == UNOP_NEG) {
                 fprintf(g->out, "    negq    %%rax\n");
+            } else if (e->as.unary.op == UNOP_BITNOT) {
+                fprintf(g->out, "    notq    %%rax\n");
             } else { /* UNOP_NOT */
                 fprintf(g->out, "    cmpq    $0, %%rax\n");
                 fprintf(g->out, "    sete    %%al\n");
@@ -642,6 +668,10 @@ static void gen_expr(CG *g, const Expr *e)
                     break;
                 case BINOP_AND: case BINOP_OR:
                     gen_binop_logical(g, e);
+                    break;
+                case BINOP_BITAND: case BINOP_BITOR: case BINOP_BITXOR:
+                case BINOP_SHL: case BINOP_SHR:
+                    gen_binop_bitwise(g, e);
                     break;
             }
             break;

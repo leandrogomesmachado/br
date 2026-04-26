@@ -371,6 +371,13 @@ static Expr *parse_unary(Parser *p)
         Expr *operand = parse_unary(p);
         return ast_expr_unary(UNOP_NOT, operand, line, col);
     }
+    if (p->cur.kind == TK_TILDE) {
+        int line = p->cur.line;
+        int col  = p->cur.col;
+        advance(p);
+        Expr *operand = parse_unary(p);
+        return ast_expr_unary(UNOP_BITNOT, operand, line, col);
+    }
     if (p->cur.kind == TK_AMP) {
         /* address-of: &lvalue. A verificacao de que o operando e' um
          * lvalue valido (variavel escalar, elemento de vetor, campo ou
@@ -445,9 +452,27 @@ static Expr *parse_additive(Parser *p)
     return lhs;
 }
 
-static Expr *parse_relational(Parser *p)
+/* Shift: '<<' e '>>' tem precedencia entre additive e relational, igual a C.
+ * '>>' e' aritmetico (preserva sinal), '<<' e' logico. */
+static Expr *parse_shift(Parser *p)
 {
     Expr *lhs = parse_additive(p);
+    for (;;) {
+        BinOp op;
+        if      (p->cur.kind == TK_LSHIFT) op = BINOP_SHL;
+        else if (p->cur.kind == TK_RSHIFT) op = BINOP_SHR;
+        else break;
+        int line = p->cur.line, col = p->cur.col;
+        advance(p);
+        Expr *rhs = parse_additive(p);
+        lhs = ast_expr_binop(op, lhs, rhs, line, col);
+    }
+    return lhs;
+}
+
+static Expr *parse_relational(Parser *p)
+{
+    Expr *lhs = parse_shift(p);
     for (;;) {
         BinOp op;
         if      (p->cur.kind == TK_LT) op = BINOP_LT;
@@ -457,7 +482,7 @@ static Expr *parse_relational(Parser *p)
         else break;
         int line = p->cur.line, col = p->cur.col;
         advance(p);
-        Expr *rhs = parse_additive(p);
+        Expr *rhs = parse_shift(p);
         lhs = ast_expr_binop(op, lhs, rhs, line, col);
     }
     return lhs;
@@ -479,13 +504,55 @@ static Expr *parse_equality(Parser *p)
     return lhs;
 }
 
-static Expr *parse_logical_and(Parser *p)
+/* Bitwise: precedencia C-like
+ *   bitand  -> equality  ('&'  equality)*
+ *   bitxor  -> bitand    ('^'  bitand)*
+ *   bitor   -> bitxor    ('|'  bitxor)*
+ * Note: TK_AMP entre dois operandos vira BITAND aqui; quando aparece como
+ * prefixo em parse_unary, e' UNOP_ADDR. Sao contextos disjuntos. */
+static Expr *parse_bitand(Parser *p)
 {
     Expr *lhs = parse_equality(p);
-    while (p->cur.kind == TK_AMP_AMP) {
+    while (p->cur.kind == TK_AMP) {
         int line = p->cur.line, col = p->cur.col;
         advance(p);
         Expr *rhs = parse_equality(p);
+        lhs = ast_expr_binop(BINOP_BITAND, lhs, rhs, line, col);
+    }
+    return lhs;
+}
+
+static Expr *parse_bitxor(Parser *p)
+{
+    Expr *lhs = parse_bitand(p);
+    while (p->cur.kind == TK_CARET) {
+        int line = p->cur.line, col = p->cur.col;
+        advance(p);
+        Expr *rhs = parse_bitand(p);
+        lhs = ast_expr_binop(BINOP_BITXOR, lhs, rhs, line, col);
+    }
+    return lhs;
+}
+
+static Expr *parse_bitor(Parser *p)
+{
+    Expr *lhs = parse_bitxor(p);
+    while (p->cur.kind == TK_PIPE) {
+        int line = p->cur.line, col = p->cur.col;
+        advance(p);
+        Expr *rhs = parse_bitxor(p);
+        lhs = ast_expr_binop(BINOP_BITOR, lhs, rhs, line, col);
+    }
+    return lhs;
+}
+
+static Expr *parse_logical_and(Parser *p)
+{
+    Expr *lhs = parse_bitor(p);
+    while (p->cur.kind == TK_AMP_AMP) {
+        int line = p->cur.line, col = p->cur.col;
+        advance(p);
+        Expr *rhs = parse_bitor(p);
         lhs = ast_expr_binop(BINOP_AND, lhs, rhs, line, col);
     }
     return lhs;
@@ -527,6 +594,11 @@ static int compound_assign_op(TokenKind k, BinOp *op)
         case TK_STAR_ASSIGN:    *op = BINOP_MUL; return 1;
         case TK_SLASH_ASSIGN:   *op = BINOP_DIV; return 1;
         case TK_PERCENT_ASSIGN: *op = BINOP_MOD; return 1;
+        case TK_AMP_ASSIGN:     *op = BINOP_BITAND; return 1;
+        case TK_PIPE_ASSIGN:    *op = BINOP_BITOR;  return 1;
+        case TK_CARET_ASSIGN:   *op = BINOP_BITXOR; return 1;
+        case TK_LSHIFT_ASSIGN:  *op = BINOP_SHL;    return 1;
+        case TK_RSHIFT_ASSIGN:  *op = BINOP_SHR;    return 1;
         default: return 0;
     }
 }

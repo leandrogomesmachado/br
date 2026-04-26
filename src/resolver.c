@@ -646,6 +646,22 @@ static void resolve_expr(RCtx *c, Expr *e)
                                                      : "operando direito de '||'");
                     e->eval_type = tY_int();
                     break;
+                case BINOP_BITAND: case BINOP_BITOR: case BINOP_BITXOR:
+                case BINOP_SHL:    case BINOP_SHR:
+                    /* Bitwise: ambos os operandos devem ser numericos
+                     * escalares (inteiro ou caractere). Operacoes em
+                     * ponteiros nao fazem sentido aqui. Resultado inteiro. */
+                    if (lp || rp) {
+                        br_fatal_at(c->path, e->line, e->col,
+                                    "operador bitwise nao suportado em ponteiros");
+                    }
+                    if (!br_type_is_numeric_scalar(lt) ||
+                        !br_type_is_numeric_scalar(rt)) {
+                        br_fatal_at(c->path, e->line, e->col,
+                                    "operador bitwise requer operandos inteiros ou caracteres");
+                    }
+                    e->eval_type = tY_int();
+                    break;
                 default:
                     /* MUL/DIV/MOD: ambos operandos devem ser numericos
                      * escalares; aritmetica com ponteiros nao faz sentido
@@ -705,6 +721,15 @@ static void resolve_expr(RCtx *c, Expr *e)
                     BrType ot = e->as.unary.operand->eval_type;
                     typecheck_boolable_or_die(c, ot, e->line, e->col,
                                               "operando de '!'");
+                    e->eval_type = tY_int();
+                    break;
+                }
+                case UNOP_BITNOT: {
+                    BrType ot = e->as.unary.operand->eval_type;
+                    if (!br_type_is_numeric_scalar(ot)) {
+                        br_fatal_at(c->path, e->line, e->col,
+                                    "operador unario '~' requer inteiro ou caractere");
+                    }
                     e->eval_type = tY_int();
                     break;
                 }

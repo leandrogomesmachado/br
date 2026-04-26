@@ -1,0 +1,21 @@
+// Operadores bitwise basicos: & | ^ ~ << >>
+// (literais em decimal: o lexer ainda nao suporta hex.)
+// esperado: 42
+funcao inteiro principal() {
+    inteiro a = 240;           // 0b11110000
+    inteiro b = 51;            // 0b00110011
+    se ((a & b) != 48)  { retornar 1; }   // 0b00110000
+    se ((a | b) != 243) { retornar 2; }   // 0b11110011
+    se ((a ^ b) != 195) { retornar 3; }   // 0b11000011
+    inteiro f = ~255;
+    se ((f & 255) != 0) { retornar 4; }
+    se ((1 << 5) != 32)    { retornar 5; }
+    se ((1024 >> 5) != 32) { retornar 6; }
+    // Precedencia: '+' liga mais forte que '<<' que '&' que '|'
+    se ((1 + 2 << 3) != 24) { retornar 7; }    // (1+2) << 3
+    se ((15 & 3 | 16) != 19) { retornar 8; }   // (15 & 3) | 16
+    // bitwise nao curto-circuita: ambos os lados sao avaliados
+    inteiro x = 1;
+    se ((x & 0) != 0) { retornar 9; }
+    retornar 42;
+}

@@ -1,0 +1,7 @@
+// erro: operador bitwise nao suportado em ponteiros
+funcao inteiro principal() {
+    inteiro x = 1;
+    inteiro * p = &x;
+    inteiro y = p | 1;
+    retornar y;
+}

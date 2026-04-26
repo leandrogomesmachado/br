@@ -1,0 +1,7 @@
+// erro: operador unario '~' requer inteiro ou caractere
+funcao inteiro principal() {
+    inteiro x = 1;
+    inteiro * p = &x;
+    inteiro y = ~p;
+    retornar y;
+}
