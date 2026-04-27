@@ -1,0 +1,7 @@
+// erro: nome 'X' ja usado por item de enumeracao
+enumeracao E { X, Y }
+inteiro X = 0;
+
+funcao inteiro principal() {
+    retornar 0;
+}

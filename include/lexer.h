@@ -85,6 +85,7 @@ typedef enum {
     TK_KW_CONTINUAR, /* continuar (continue) */
     TK_KW_FACA,      /* faca     (do em do/while) */
     TK_KW_INCLUIR,   /* incluir "x.brh"; (diretiva top-level) */
+    TK_KW_ENUMERACAO,/* enumeracao Nome { A, B = 10, C } */
 } TokenKind;
 
 typedef struct {

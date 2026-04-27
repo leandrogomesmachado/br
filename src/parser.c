@@ -698,30 +698,36 @@ static Stmt *parse_switch(Parser *p)
         if (p->cur.kind == TK_KW_CASO) {
             int cl = p->cur.line, cc = p->cur.col;
             advance(p);
-            /* Aceita apenas literal inteiro (com sinal opcional) como rotulo. */
-            long long sign = 1;
-            if (accept(p, TK_MINUS)) {
-                sign = -1;
-            }
-            Token v = expect(p, TK_INT_LIT);
-            long long value = sign * v.int_val;
-            expect(p, TK_COLON);
-            /* Detecta caso duplicado. */
-            for (size_t i = 0; i < ncases; i++) {
-                if (cases[i].value == value) {
-                    br_fatal_at(p->path, cl, cc,
-                                "valor de 'caso' duplicado: %lld", value);
+            /* Aceita um literal inteiro (com sinal opcional) ou um
+             * identificador (resolvido posteriormente como item de
+             * enumeracao). A deteccao de casos duplicados e' feita pelo
+             * resolver, depois que todos os identificadores foram
+             * convertidos em valores inteiros. */
+            long long value = 0;
+            char     *name_unresolved = NULL;
+            if (p->cur.kind == TK_IDENT) {
+                Token id = p->cur;
+                advance(p);
+                name_unresolved = br_xstrndup(id.lexeme, id.length);
+            } else {
+                long long sign = 1;
+                if (accept(p, TK_MINUS)) {
+                    sign = -1;
                 }
+                Token v = expect(p, TK_INT_LIT);
+                value = sign * v.int_val;
             }
+            expect(p, TK_COLON);
             Stmt *body = parse_stmt(p);
             if (ncases == cap) {
                 cap = cap ? cap * 2 : 4;
                 cases = (SwitchCase *)br_xrealloc(cases, cap * sizeof(SwitchCase));
             }
-            cases[ncases].value = value;
-            cases[ncases].body  = body;
-            cases[ncases].line  = cl;
-            cases[ncases].col   = cc;
+            cases[ncases].value           = value;
+            cases[ncases].name_unresolved = name_unresolved;
+            cases[ncases].body            = body;
+            cases[ncases].line            = cl;
+            cases[ncases].col             = cc;
             ncases++;
         } else if (p->cur.kind == TK_KW_SENAO) {
             int dl = p->cur.line, dc = p->cur.col;
@@ -1182,6 +1188,88 @@ static GlobalDecl *parse_global_decl(Parser *p)
     return g;
 }
 
+/* ---------------------------- 'enumeracao' ---------------------------- *
+ *
+ * Sintaxe:
+ *
+ *     enumeracao Nome {
+ *         A,
+ *         B = 10,
+ *         C
+ *     }
+ *
+ * - Sem ';' apos a chave fechadora (segue 'estrutura' nessa convencao).
+ * - Items separados por virgula; virgula final permitida.
+ * - Valor: literal inteiro com sinal opcional ('= -3' permitido). NAO
+ *   suportamos expressoes constantes nesta versao.
+ * - Sem valor explicito: anterior + 1; o primeiro item sem valor e' 0.
+ * - O 'tag' do enum (Nome) e' guardado para diagnosticos. Nao introduz um
+ *   tipo: items sao convertidos em literais inteiros pelo resolver. */
+static EnumDecl *parse_enum_decl(Parser *p)
+{
+    int line = p->cur.line, col = p->cur.col;
+    advance(p);                             /* consome 'enumeracao' */
+    Token name = expect(p, TK_IDENT);
+
+    EnumDecl *e = (EnumDecl *)br_xcalloc(1, sizeof(EnumDecl));
+    e->name     = br_xstrndup(name.lexeme, name.length);
+    e->src_path = p->path;
+    e->line     = line;
+    e->col      = col;
+
+    expect(p, TK_LBRACE);
+    long long next_value = 0;
+    while (p->cur.kind != TK_RBRACE && p->cur.kind != TK_EOF) {
+        Token iname = expect(p, TK_IDENT);
+        long long value;
+        if (accept(p, TK_ASSIGN)) {
+            int neg = 0;
+            if (accept(p, TK_MINUS)) {
+                neg = 1;
+            }
+            if (p->cur.kind != TK_INT_LIT) {
+                br_fatal_at(p->path, p->cur.line, p->cur.col,
+                            "valor de item de enumeracao deve ser literal inteiro");
+            }
+            value = neg ? -p->cur.int_val : p->cur.int_val;
+            advance(p);
+        } else {
+            value = next_value;
+        }
+        next_value = value + 1;
+
+        /* Detecta nomes duplicados dentro do mesmo enum (diagnostico cedo;
+         * conflitos com nomes externos sao verificados no resolver). */
+        for (size_t k = 0; k < e->nitems; k++) {
+            if (strlen(e->items[k].name) == iname.length &&
+                memcmp(e->items[k].name, iname.lexeme, iname.length) == 0) {
+                br_fatal_at(p->path, iname.line, iname.col,
+                            "item '%.*s' duplicado em enumeracao '%s'",
+                            (int)iname.length, iname.lexeme, e->name);
+            }
+        }
+
+        e->items = (EnumItem *)br_xrealloc(e->items,
+                                           (e->nitems + 1) * sizeof(EnumItem));
+        EnumItem *it = &e->items[e->nitems++];
+        it->name  = br_xstrndup(iname.lexeme, iname.length);
+        it->value = value;
+        it->line  = iname.line;
+        it->col   = iname.col;
+
+        if (!accept(p, TK_COMMA)) {
+            break;
+        }
+    }
+    expect(p, TK_RBRACE);
+
+    if (e->nitems == 0) {
+        br_fatal_at(p->path, line, col,
+                    "enumeracao '%s' nao pode ser vazia", e->name);
+    }
+    return e;
+}
+
 /* ---------------------------- 'incluir' ------------------------------- *
  *
  * Conjunto de paths canonicalizados (realpath) ja visitados, usado para
@@ -1315,6 +1403,9 @@ static void parse_top_level_loop(Parser *p, VisitedSet *visited)
     while (p->cur.kind != TK_EOF) {
         if (p->cur.kind == TK_KW_INCLUIR) {
             parse_include_directive(p, visited);
+        } else if (p->cur.kind == TK_KW_ENUMERACAO) {
+            EnumDecl *e = parse_enum_decl(p);
+            ast_program_add_enum(p->prog, e);
         } else if (p->cur.kind == TK_KW_ESTRUTURA) {
             if (top_estrutura_is_global(p)) {
                 GlobalDecl *g = parse_global_decl(p);

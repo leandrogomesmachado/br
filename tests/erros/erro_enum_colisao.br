@@ -1,0 +1,7 @@
+// erro: item 'AZUL' colide com item de enumeracao 'A'
+enumeracao A { VERMELHO, AZUL }
+enumeracao B { CLARO, AZUL }
+
+funcao inteiro principal() {
+    retornar 0;
+}

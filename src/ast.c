@@ -306,6 +306,8 @@ void ast_program_init(Program *p)
     p->nstructs  = 0;
     p->globals   = NULL;
     p->nglobals  = 0;
+    p->enums     = NULL;
+    p->nenums    = 0;
     p->inc_paths   = NULL;
     p->inc_sources = NULL;
     p->ninc        = 0;
@@ -338,6 +340,26 @@ void ast_program_add_global(Program *p, GlobalDecl *g)
     p->globals = (GlobalDecl **)br_xrealloc(p->globals,
                                             (p->nglobals + 1) * sizeof(GlobalDecl *));
     p->globals[p->nglobals++] = g;
+}
+
+void ast_program_add_enum(Program *p, EnumDecl *e)
+{
+    p->enums = (EnumDecl **)br_xrealloc(p->enums,
+                                        (p->nenums + 1) * sizeof(EnumDecl *));
+    p->enums[p->nenums++] = e;
+}
+
+static void ast_free_enum(EnumDecl *e)
+{
+    if (!e) {
+        return;
+    }
+    for (size_t i = 0; i < e->nitems; i++) {
+        free(e->items[i].name);
+    }
+    free(e->items);
+    free(e->name);
+    free(e);
 }
 
 const GlobalDecl *ast_program_find_global(const Program *p,
@@ -525,6 +547,7 @@ void ast_free_stmt(Stmt *s)
             ast_free_expr(s->as.switch_s.expr);
             for (size_t i = 0; i < s->as.switch_s.ncases; i++) {
                 ast_free_stmt(s->as.switch_s.cases[i].body);
+                free(s->as.switch_s.cases[i].name_unresolved);
             }
             free(s->as.switch_s.cases);
             ast_free_stmt(s->as.switch_s.default_stmt);
@@ -576,6 +599,10 @@ void ast_free_program(Program *p)
         ast_free_global(p->globals[i]);
     }
     free(p->globals);
+    for (size_t i = 0; i < p->nenums; i++) {
+        ast_free_enum(p->enums[i]);
+    }
+    free(p->enums);
     /* Libera buffers de paths/sources adicionados via 'incluir'. */
     for (size_t i = 0; i < p->ninc; i++) {
         free(p->inc_paths[i]);
@@ -589,6 +616,8 @@ void ast_free_program(Program *p)
     p->nstructs  = 0;
     p->globals   = NULL;
     p->nglobals  = 0;
+    p->enums     = NULL;
+    p->nenums    = 0;
     p->inc_paths   = NULL;
     p->inc_sources = NULL;
     p->ninc        = 0;

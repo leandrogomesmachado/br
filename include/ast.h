@@ -273,7 +273,13 @@ struct Stmt {
 };
 
 typedef struct SwitchCase {
-    long long value;       /* valor literal do caso */
+    long long value;            /* valor literal do caso (preenchido pelo
+                                 * parser para literais; pelo resolver
+                                 * quando 'name_unresolved' nao e' NULL) */
+    char     *name_unresolved;  /* alocado; nao-NULL se o caso veio na
+                                 * forma 'caso ITEM_DE_ENUM:'. O resolver
+                                 * preenche 'value', libera e zera este
+                                 * ponteiro. NULL para casos com literal. */
     Stmt     *body;
     int       line;
     int       col;
@@ -336,6 +342,24 @@ typedef struct GlobalDecl {
     int     col;
 } GlobalDecl;
 
+/* Item de enumeracao: nome -> valor inteiro com sinal. O valor e' calculado
+ * pelo parser (auto-incremento ou expressao explicita = literal inteiro). */
+typedef struct {
+    char     *name;        /* alocado */
+    long long value;
+    int       line;
+    int       col;
+} EnumItem;
+
+typedef struct EnumDecl {
+    char       *name;        /* alocado; o tag do enum */
+    EnumItem   *items;       /* vetor alocado */
+    size_t      nitems;
+    const char *src_path;    /* nao-dono */
+    int         line;
+    int         col;
+} EnumDecl;
+
 typedef struct {
     FuncDecl    **funcs;     /* vetor alocado */
     size_t        nfuncs;
@@ -343,6 +367,8 @@ typedef struct {
     size_t        nstructs;
     GlobalDecl  **globals;   /* vetor alocado */
     size_t        nglobals;
+    EnumDecl    **enums;     /* vetor alocado */
+    size_t        nenums;
     /* Suporte a 'incluir': arquivos lidos em adicao ao principal.
      * Cada par (path, source) e' alocado e libertado por ast_free_program.
      * Os ponteiros aqui guardados sao usados como src_path nas declaracoes
@@ -398,6 +424,7 @@ void  ast_program_init(Program *p);
 void  ast_program_add_func(Program *p, FuncDecl *f);
 void  ast_program_add_struct(Program *p, StructDecl *s);
 void  ast_program_add_global(Program *p, GlobalDecl *g);
+void  ast_program_add_enum(Program *p, EnumDecl *e);
 
 /* Registra um par (path, source) em Program. Ambos os ponteiros passam a
  * ser de propriedade do Program (libertados por ast_free_program). Retorna

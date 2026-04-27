@@ -1,0 +1,23 @@
+// enumeracao basica: auto-incremento, valor explicito, mistura.
+// Cores: VERMELHO=0, VERDE=1, AZUL=2
+// Flags:  LER=1, ESCREVER=2, EXEC=4
+// esperado: 9
+enumeracao Cor {
+    VERMELHO,
+    VERDE,
+    AZUL,
+}
+
+enumeracao Flag {
+    LER     = 1,
+    ESCREVER= 2,
+    EXEC    = 4
+}
+
+funcao inteiro principal() {
+    se (VERMELHO != 0) { retornar 1; }
+    se (VERDE    != 1) { retornar 2; }
+    se (AZUL     != 2) { retornar 3; }
+    se ((LER | ESCREVER | EXEC) != 7) { retornar 4; }
+    retornar AZUL + EXEC + 3;   // 2 + 4 + 3 = 9
+}

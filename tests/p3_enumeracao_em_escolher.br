@@ -1,0 +1,20 @@
+// Usa items de enum em 'caso' (compile-time integer constants).
+// esperado: 42
+enumeracao Op {
+    SOMA   = 1,
+    SUB    = 2,
+    MUL    = 3,
+}
+
+funcao inteiro aplicar(inteiro op, inteiro a, inteiro b) {
+    escolher (op) {
+        caso SOMA: retornar a + b;
+        caso SUB:  retornar a - b;
+        caso MUL:  retornar a * b;
+        senao:     retornar 0;
+    }
+}
+
+funcao inteiro principal() {
+    retornar aplicar(MUL, 6, 7);
+}

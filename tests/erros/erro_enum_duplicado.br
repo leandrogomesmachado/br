@@ -1,0 +1,6 @@
+// erro: item 'X' duplicado em enumeracao 'E'
+enumeracao E { X, Y, X }
+
+funcao inteiro principal() {
+    retornar 0;
+}

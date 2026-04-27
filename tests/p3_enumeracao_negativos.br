@@ -1,0 +1,19 @@
+// Valores negativos e auto-incremento a partir deles.
+// A=-3, B=-2, C=-1, D=10, E=11
+// esperado: 0
+enumeracao E {
+    A = -3,
+    B,
+    C,
+    D = 10,
+    E,
+}
+
+funcao inteiro principal() {
+    se (A != -3) { retornar 1; }
+    se (B != -2) { retornar 2; }
+    se (C != -1) { retornar 3; }
+    se (D != 10) { retornar 4; }
+    se (E != 11) { retornar 5; }
+    retornar 0;
+}

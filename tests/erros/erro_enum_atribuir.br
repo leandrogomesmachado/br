@@ -1,0 +1,7 @@
+// erro: item de enumeracao 'A' nao e atribuivel
+enumeracao E { A, B }
+
+funcao inteiro principal() {
+    A = 5;
+    retornar 0;
+}

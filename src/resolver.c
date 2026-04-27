@@ -242,10 +242,60 @@ static void gtab_add(GlobalTable *t, const GlobalDecl *g)
     t->items[t->len++] = g;
 }
 
+/* Tabela achatada de items de enumeracao (todos os enums do programa
+ * misturados em um unico namespace plano). Cada entrada associa um nome
+ * de item a um valor inteiro literal e ao tag do enum a que pertence
+ * (apenas para diagnostico). Como enums nao introduzem tipo nesta versao,
+ * basta esse mapa. */
+typedef struct {
+    const char *name;          /* nao-dono: aponta para EnumItem::name */
+    long long   value;
+    const char *enum_tag;      /* nao-dono: aponta para EnumDecl::name */
+} EnumEntry;
+
+typedef struct {
+    EnumEntry *items;
+    size_t     len;
+} EnumTable;
+
+static void etab_init(EnumTable *t)
+{
+    t->items = NULL;
+    t->len   = 0;
+}
+
+static void etab_free(EnumTable *t)
+{
+    free(t->items);
+    t->items = NULL;
+    t->len   = 0;
+}
+
+static const EnumEntry *etab_find(const EnumTable *t, const char *name)
+{
+    for (size_t i = 0; i < t->len; i++) {
+        if (strcmp(t->items[i].name, name) == 0) {
+            return &t->items[i];
+        }
+    }
+    return NULL;
+}
+
+static void etab_add(EnumTable *t, const char *name, long long value,
+                     const char *enum_tag)
+{
+    t->items = (EnumEntry *)br_xrealloc(t->items, (t->len + 1) * sizeof(EnumEntry));
+    t->items[t->len].name     = name;
+    t->items[t->len].value    = value;
+    t->items[t->len].enum_tag = enum_tag;
+    t->len++;
+}
+
 typedef struct {
     const FuncTable   *ftab;
     const StructTable *stab;
     const GlobalTable *gtab;
+    const EnumTable   *etab;
     Scope             *scope;
     const char        *path;
     const FuncDecl    *cur_func;  /* funcao sendo resolvida; NULL fora */
@@ -442,6 +492,20 @@ static void resolve_expr(RCtx *c, Expr *e)
             e->eval_type = br_type_pointer(BR_BASE_CARACTERE, 1);
             break;
         case EXPR_VAR: {
+            /* Items de enumeracao tem prioridade sobre o lookup de escopo.
+             * Caso o nome bata com um item, mutamos o no AST para um literal
+             * inteiro (com valor pre-calculado pelo parser). Isso e' seguro
+             * porque o codegen para EXPR_INT_LIT e' trivial e a expressao
+             * deixa de ser uma lvalue (uso como alvo de '=' ou '&' e'
+             * detectado em EXPR_ASSIGN/EXPR_UNARY com mensagens normais). */
+            const EnumEntry *ee = etab_find(c->etab, e->as.var.name);
+            if (ee) {
+                free(e->as.var.name);
+                e->kind        = EXPR_INT_LIT;
+                e->as.int_lit  = ee->value;
+                e->eval_type   = tY_int();
+                break;
+            }
             const ScopeEntry *se = scope_lookup_entry(c->scope, e->as.var.name);
             if (se) {
                 if (se->array_len > 0) {
@@ -584,6 +648,16 @@ static void resolve_expr(RCtx *c, Expr *e)
             break;
         }
         case EXPR_ASSIGN:
+            /* Mensagem especifica quando alguem tenta atribuir a um item
+             * de enumeracao. Sem este guard, a mutacao de EXPR_VAR em
+             * EXPR_INT_LIT (na resolucao do target) faria o codegen
+             * receber uma lvalue invalida; daria erro tardio menos util. */
+            if (e->as.assign.target->kind == EXPR_VAR &&
+                etab_find(c->etab, e->as.assign.target->as.var.name)) {
+                br_fatal_at(c->path, e->line, e->col,
+                            "item de enumeracao '%s' nao e atribuivel",
+                            e->as.assign.target->as.var.name);
+            }
             resolve_expr(c, e->as.assign.target);
             resolve_expr(c, e->as.assign.value);
             typecheck_assign_or_die(c,
@@ -1056,19 +1130,48 @@ static void resolve_stmt(RCtx *c, Stmt *s)
                             "'continuar' so e' permitido dentro de 'enquanto', 'para' ou 'faca'");
             }
             break;
-        case STMT_SWITCH:
+        case STMT_SWITCH: {
             resolve_expr(c, s->as.switch_s.expr);
             if (!br_type_is_numeric_scalar(s->as.switch_s.expr->eval_type)) {
                 br_fatal_at(c->path, s->line, s->col,
                             "expressao de 'escolher' deve ser inteiro ou caractere");
             }
+            /* Resolve cases na forma 'caso ITEM_DE_ENUM:' substituindo o
+             * nome pelo valor pre-calculado. Apenas items de enumeracao
+             * sao aceitos (nao funcoes, variaveis ou globais). */
             for (size_t i = 0; i < s->as.switch_s.ncases; i++) {
+                SwitchCase *cs = &s->as.switch_s.cases[i];
+                if (cs->name_unresolved) {
+                    const EnumEntry *ee = etab_find(c->etab, cs->name_unresolved);
+                    if (!ee) {
+                        br_fatal_at(c->path, cs->line, cs->col,
+                                    "'%s' nao e literal nem item de enumeracao",
+                                    cs->name_unresolved);
+                    }
+                    cs->value = ee->value;
+                    free(cs->name_unresolved);
+                    cs->name_unresolved = NULL;
+                }
+            }
+            /* Detecta valores duplicados (depois da resolucao). */
+            for (size_t i = 0; i < s->as.switch_s.ncases; i++) {
+                for (size_t j = i + 1; j < s->as.switch_s.ncases; j++) {
+                    if (s->as.switch_s.cases[i].value ==
+                        s->as.switch_s.cases[j].value) {
+                        br_fatal_at(c->path,
+                                    s->as.switch_s.cases[j].line,
+                                    s->as.switch_s.cases[j].col,
+                                    "valor de 'caso' duplicado: %lld",
+                                    s->as.switch_s.cases[j].value);
+                    }
+                }
                 resolve_stmt(c, s->as.switch_s.cases[i].body);
             }
             if (s->as.switch_s.default_stmt) {
                 resolve_stmt(c, s->as.switch_s.default_stmt);
             }
             break;
+        }
     }
 }
 
@@ -1082,12 +1185,12 @@ static int align_up_16(int n)
 }
 
 static void resolve_func(const FuncTable *ftab, const StructTable *stab,
-                         const GlobalTable *gtab,
+                         const GlobalTable *gtab, const EnumTable *etab,
                          FuncDecl *f, const char *path)
 {
     Scope sc;
     scope_init(&sc);
-    RCtx ctx = { ftab, stab, gtab, &sc, path, f, 0 };
+    RCtx ctx = { ftab, stab, gtab, etab, &sc, path, f, 0 };
 
     /* Declara parametros no escopo de nivel 1 (acima do corpo). */
     scope_push_block(&sc);
@@ -1121,9 +1224,31 @@ void resolver_run(Program *prog, const char *path)
     FuncTable   ftab;
     StructTable stab;
     GlobalTable gtab;
+    EnumTable   etab;
     ftab_init(&ftab);
     stab_init(&stab);
     gtab_init(&gtab);
+    etab_init(&etab);
+
+    /* Popula EnumTable com todos os items de todas as enumeracoes. Conflitos
+     * entre items dentro de um mesmo enum ja foram detectados no parser;
+     * aqui detectamos colisoes ENTRE enums (mesmo nome em enums diferentes).
+     * Conflitos com builtins/funcoes/structs/globais sao verificados nas
+     * etapas correspondentes mais adiante (que checam etab_find tambem). */
+    for (size_t i = 0; i < prog->nenums; i++) {
+        const EnumDecl *ed = prog->enums[i];
+        const char *ed_path = ed->src_path ? ed->src_path : path;
+        for (size_t j = 0; j < ed->nitems; j++) {
+            const EnumItem *it = &ed->items[j];
+            const EnumEntry *prev = etab_find(&etab, it->name);
+            if (prev) {
+                br_fatal_at(ed_path, it->line, it->col,
+                            "item '%s' colide com item de enumeracao '%s'",
+                            it->name, prev->enum_tag);
+            }
+            etab_add(&etab, it->name, it->value, ed->name);
+        }
+    }
 
     /* Registra as declaracoes de estrutura (permitindo referencia entre elas). */
     for (size_t i = 0; i < prog->nstructs; i++) {
@@ -1162,6 +1287,10 @@ void resolver_run(Program *prog, const char *path)
         if (is_builtin(f->name)) {
             br_fatal_at(f_path, f->line, f->col,
                         "nome '%s' e reservado (funcao embutida)", f->name);
+        }
+        if (etab_find(&etab, f->name)) {
+            br_fatal_at(f_path, f->line, f->col,
+                        "nome '%s' ja usado por item de enumeracao", f->name);
         }
         /* Duplicidade: aceitamos um prototipo seguido de uma definicao com
          * o mesmo nome, desde que as assinaturas sejam identicas. Dois
@@ -1248,9 +1377,13 @@ void resolver_run(Program *prog, const char *path)
             br_fatal_at(g_path, g->line, g->col,
                         "nome '%s' ja usado por funcao (ou builtin)", g->name);
         }
+        if (etab_find(&etab, g->name)) {
+            br_fatal_at(g_path, g->line, g->col,
+                        "nome '%s' ja usado por item de enumeracao", g->name);
+        }
         if (g->init) {
             /* O parser ja preenche eval_type do literal; basta typecheck. */
-            RCtx tmp = { &ftab, &stab, &gtab, NULL, path, NULL, 0 };
+            RCtx tmp = { &ftab, &stab, &gtab, &etab, NULL, path, NULL, 0 };
             typecheck_assign_or_die(&tmp, g->type, g->init->eval_type,
                                     g->init->line, g->init->col,
                                     "inicializacao de global");
@@ -1267,10 +1400,11 @@ void resolver_run(Program *prog, const char *path)
         if (f->is_prototype) {
             continue;
         }
-        resolve_func(&ftab, &stab, &gtab, f, f->src_path ? f->src_path : path);
+        resolve_func(&ftab, &stab, &gtab, &etab, f, f->src_path ? f->src_path : path);
     }
 
     ftab_free(&ftab);
     stab_free(&stab);
     gtab_free(&gtab);
+    etab_free(&etab);
 }
