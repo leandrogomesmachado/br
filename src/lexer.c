@@ -164,12 +164,76 @@ Token lexer_next(Lexer *lx)
         return make_tok(k, start, len, start_line, start_col);
     }
 
-    /* literal inteiro decimal */
+    /* literal inteiro: decimal, ou com prefixo '0x' (hex), '0b' (binario)
+     * ou '0o' (octal). NAO aceitamos a convencao C de '0' inicial implicar
+     * octal: '012' aqui e' 12 (decimal). */
     if (c >= '0' && c <= '9') {
         long long value = 0;
-        while (peek_ch(lx) >= '0' && peek_ch(lx) <= '9') {
-            value = value * 10 + (peek_ch(lx) - '0');
-            advance_ch(lx);
+        int digits = 0;
+        if (c == '0' && (peek_ch_at(lx, 1) == 'x' || peek_ch_at(lx, 1) == 'X')) {
+            advance_ch(lx); advance_ch(lx);     /* consome '0x' */
+            for (;;) {
+                int d = peek_ch(lx);
+                int v;
+                if (d >= '0' && d <= '9') {
+                    v = d - '0';
+                } else if (d >= 'a' && d <= 'f') {
+                    v = d - 'a' + 10;
+                } else if (d >= 'A' && d <= 'F') {
+                    v = d - 'A' + 10;
+                } else {
+                    break;
+                }
+                value = value * 16 + v;
+                digits++;
+                advance_ch(lx);
+            }
+            if (digits == 0) {
+                br_fatal_at(lx->path, start_line, start_col,
+                            "literal hexadecimal '0x' sem digitos");
+            }
+        } else if (c == '0' && (peek_ch_at(lx, 1) == 'b' || peek_ch_at(lx, 1) == 'B')) {
+            advance_ch(lx); advance_ch(lx);     /* consome '0b' */
+            for (;;) {
+                int d = peek_ch(lx);
+                if (d != '0' && d != '1') {
+                    break;
+                }
+                value = value * 2 + (d - '0');
+                digits++;
+                advance_ch(lx);
+            }
+            if (digits == 0) {
+                br_fatal_at(lx->path, start_line, start_col,
+                            "literal binario '0b' sem digitos");
+            }
+        } else if (c == '0' && (peek_ch_at(lx, 1) == 'o' || peek_ch_at(lx, 1) == 'O')) {
+            advance_ch(lx); advance_ch(lx);     /* consome '0o' */
+            for (;;) {
+                int d = peek_ch(lx);
+                if (d < '0' || d > '7') {
+                    break;
+                }
+                value = value * 8 + (d - '0');
+                digits++;
+                advance_ch(lx);
+            }
+            if (digits == 0) {
+                br_fatal_at(lx->path, start_line, start_col,
+                            "literal octal '0o' sem digitos");
+            }
+        } else {
+            while (peek_ch(lx) >= '0' && peek_ch(lx) <= '9') {
+                value = value * 10 + (peek_ch(lx) - '0');
+                advance_ch(lx);
+            }
+        }
+        /* Apos o numero, um identificador colado e' erro de digitacao
+         * (ex: '0x1FG' ou '12abc'); melhor falhar cedo. */
+        int trail = peek_ch(lx);
+        if (is_ident_start(trail)) {
+            br_fatal_at(lx->path, lx->line, lx->col,
+                        "caractere '%c' inesperado apos literal numerico", trail);
         }
         size_t len = (size_t)((lx->src + lx->pos) - start);
         Token t = make_tok(TK_INT_LIT, start, len, start_line, start_col);

@@ -1,0 +1,5 @@
+// erro: literal hexadecimal '0x' sem digitos
+funcao inteiro principal() {
+    inteiro v = 0x;
+    retornar v;
+}

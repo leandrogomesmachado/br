@@ -1,0 +1,5 @@
+// erro: caractere 'a' inesperado apos literal numerico
+funcao inteiro principal() {
+    inteiro v = 12abc;
+    retornar v;
+}

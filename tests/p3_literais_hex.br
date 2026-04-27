@@ -1,0 +1,20 @@
+// Verifica literais hex/bin/oct com igualdade ao decimal correspondente.
+// esperado: 0
+funcao inteiro principal() {
+    se (0xFF != 255)        { retornar 1; }
+    se (0xff != 255)        { retornar 2; }
+    se (0x10 != 16)         { retornar 3; }
+    se (0xDEADBEEF != 3735928559) { retornar 4; }
+    se (0b1010 != 10)       { retornar 5; }
+    se (0b11111111 != 255)  { retornar 6; }
+    se (0o17 != 15)         { retornar 7; }
+    se (0o777 != 511)       { retornar 8; }
+    // bitwise com hex
+    inteiro mask = 0xFF;
+    inteiro v = 0xABCD;
+    se ((v & mask) != 0xCD) { retornar 9; }
+    se ((v >> 8) != 0xAB)   { retornar 10; }
+    // octal preservada para uso futuro com flags POSIX (O_RDONLY=0)
+    se (0o0 != 0)           { retornar 11; }
+    retornar 0;
+}
