@@ -1128,15 +1128,16 @@ void resolver_run(Program *prog, const char *path)
     /* Registra as declaracoes de estrutura (permitindo referencia entre elas). */
     for (size_t i = 0; i < prog->nstructs; i++) {
         const StructDecl *sd = prog->structs[i];
+        const char *sd_path = sd->src_path ? sd->src_path : path;
         if (stab_find(&stab, sd->name)) {
-            br_fatal_at(path, sd->line, sd->col,
+            br_fatal_at(sd_path, sd->line, sd->col,
                         "estrutura '%s' redefinida", sd->name);
         }
         /* Valida nomes de campos unicos dentro da propria estrutura. */
         for (size_t a = 0; a < sd->nfields; a++) {
             for (size_t b = a + 1; b < sd->nfields; b++) {
                 if (strcmp(sd->fields[a].name, sd->fields[b].name) == 0) {
-                    br_fatal_at(path, sd->fields[b].line, sd->fields[b].col,
+                    br_fatal_at(sd_path, sd->fields[b].line, sd->fields[b].col,
                                 "campo '%s' duplicado em estrutura '%s'",
                                 sd->fields[b].name, sd->name);
                 }
@@ -1157,13 +1158,55 @@ void resolver_run(Program *prog, const char *path)
     }
     for (size_t i = 0; i < prog->nfuncs; i++) {
         FuncDecl *f = prog->funcs[i];
+        const char *f_path = f->src_path ? f->src_path : path;
         if (is_builtin(f->name)) {
-            br_fatal_at(path, f->line, f->col,
+            br_fatal_at(f_path, f->line, f->col,
                         "nome '%s' e reservado (funcao embutida)", f->name);
         }
-        if (ftab_find(&ftab, f->name)) {
-            br_fatal_at(path, f->line, f->col,
-                        "funcao '%s' redefinida", f->name);
+        /* Duplicidade: aceitamos um prototipo seguido de uma definicao com
+         * o mesmo nome, desde que as assinaturas sejam identicas. Dois
+         * prototipos ou duas definicoes do mesmo nome sao erros. */
+        const FuncSig *prev_sig = ftab_find(&ftab, f->name);
+        if (prev_sig) {
+            FuncDecl *prev = NULL;
+            for (size_t j = 0; j < i; j++) {
+                if (strcmp(prog->funcs[j]->name, f->name) == 0) {
+                    prev = prog->funcs[j];
+                    break;
+                }
+            }
+            if (!prev) {
+                br_fatal_at(f_path, f->line, f->col,
+                            "funcao '%s' redefinida", f->name);
+            }
+            if (!prev->is_prototype && !f->is_prototype) {
+                br_fatal_at(f_path, f->line, f->col,
+                            "funcao '%s' redefinida (ja definida em %d:%d)",
+                            f->name, prev->line, prev->col);
+            }
+            if (prev->is_prototype && f->is_prototype) {
+                br_fatal_at(f_path, f->line, f->col,
+                            "funcao '%s' tem dois prototipos (anterior em %d:%d)",
+                            f->name, prev->line, prev->col);
+            }
+            /* Verifica que as assinaturas batem entre prototipo e definicao. */
+            if (prev->nparams != f->nparams ||
+                !br_type_eq(prev->return_type, f->return_type)) {
+                br_fatal_at(f_path, f->line, f->col,
+                            "assinatura de '%s' diverge do prototipo em %d:%d",
+                            f->name, prev->line, prev->col);
+            }
+            for (size_t k = 0; k < f->nparams; k++) {
+                if (!br_type_eq(prev->params[k].type, f->params[k].type)) {
+                    br_fatal_at(f_path, f->line, f->col,
+                                "tipo do parametro %zu de '%s' diverge do prototipo em %d:%d",
+                                k + 1, f->name, prev->line, prev->col);
+                }
+            }
+            /* Nao re-adiciona em ftab; a entrada anterior ja serve para
+             * type-checking. O codegen sera capaz de localizar o corpo
+             * percorrendo prog->funcs (e ignorando prototipos). */
+            continue;
         }
         ftab_add(&ftab, f->name, f->nparams, f->return_type, f->params);
     }
@@ -1196,12 +1239,13 @@ void resolver_run(Program *prog, const char *path)
      * com o tipo declarado da global. */
     for (size_t i = 0; i < prog->nglobals; i++) {
         const GlobalDecl *g = prog->globals[i];
+        const char *g_path = g->src_path ? g->src_path : path;
         if (gtab_find(&gtab, g->name)) {
-            br_fatal_at(path, g->line, g->col,
+            br_fatal_at(g_path, g->line, g->col,
                         "variavel global '%s' redefinida", g->name);
         }
         if (ftab_find(&ftab, g->name)) {
-            br_fatal_at(path, g->line, g->col,
+            br_fatal_at(g_path, g->line, g->col,
                         "nome '%s' ja usado por funcao (ou builtin)", g->name);
         }
         if (g->init) {
@@ -1214,9 +1258,16 @@ void resolver_run(Program *prog, const char *path)
         gtab_add(&gtab, g);
     }
 
-    /* 2a passagem: resolver variaveis/offsets em cada funcao. */
+    /* 2a passagem: resolver variaveis/offsets em cada funcao definida.
+     * Prototipos (sem corpo) nao precisam ser percorridos. Cada funcao
+     * recebe seu proprio src_path para que mensagens de erro internas
+     * referenciem o arquivo correto (relevante quando ha 'incluir'). */
     for (size_t i = 0; i < prog->nfuncs; i++) {
-        resolve_func(&ftab, &stab, &gtab, prog->funcs[i], path);
+        FuncDecl *f = prog->funcs[i];
+        if (f->is_prototype) {
+            continue;
+        }
+        resolve_func(&ftab, &stab, &gtab, f, f->src_path ? f->src_path : path);
     }
 
     ftab_free(&ftab);

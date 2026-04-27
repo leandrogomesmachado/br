@@ -1,0 +1,6 @@
+// Cabecalho de exemplo para testar 'incluir':
+// declara prototipos e uma global.
+funcao inteiro dobro(inteiro x);
+funcao inteiro soma(inteiro a, inteiro b);
+
+inteiro k_offset = 100;

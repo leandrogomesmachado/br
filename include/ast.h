@@ -301,6 +301,7 @@ struct StructDecl {
     char   *name;        /* alocado */
     Field  *fields;      /* vetor alocado */
     size_t  nfields;
+    const char *src_path; /* nao-dono: caminho do arquivo onde foi declarada */
     int     line;
     int     col;
 };
@@ -310,8 +311,13 @@ typedef struct FuncDecl {
     BrType  return_type;
     Param  *params;        /* vetor alocado (pode ser NULL se nparams == 0) */
     size_t  nparams;
-    Block   body;
+    Block   body;          /* vazio quando is_prototype == 1 */
+    int     is_prototype;  /* 1 = forward declaration (sem corpo). Util para
+                            * declarar funcoes implementadas em outro arquivo
+                            * (com 'incluir') ou simplesmente para anunciar
+                            * a assinatura antes da definicao. */
     int     frame_size;    /* preenchido pelo resolver (mult. de 16) */
+    const char *src_path;  /* nao-dono: caminho do arquivo onde foi declarada */
     int     line;
     int     col;
 } FuncDecl;
@@ -325,6 +331,7 @@ typedef struct GlobalDecl {
     BrType  type;
     char   *name;       /* alocado */
     Expr   *init;       /* literal-only; pode ser NULL (zero-init em .bss) */
+    const char *src_path; /* nao-dono: caminho do arquivo onde foi declarada */
     int     line;
     int     col;
 } GlobalDecl;
@@ -336,6 +343,14 @@ typedef struct {
     size_t        nstructs;
     GlobalDecl  **globals;   /* vetor alocado */
     size_t        nglobals;
+    /* Suporte a 'incluir': arquivos lidos em adicao ao principal.
+     * Cada par (path, source) e' alocado e libertado por ast_free_program.
+     * Os ponteiros aqui guardados sao usados como src_path nas declaracoes
+     * (nao-dono na perspectiva delas) e devem permanecer validos enquanto
+     * o Program existir. */
+    char        **inc_paths;     /* vetor alocado, cada path alocado */
+    char        **inc_sources;   /* vetor alocado, cada source alocado */
+    size_t        ninc;
 } Program;
 
 /* Construtores de expressoes (alocam com malloc). */
@@ -383,6 +398,12 @@ void  ast_program_init(Program *p);
 void  ast_program_add_func(Program *p, FuncDecl *f);
 void  ast_program_add_struct(Program *p, StructDecl *s);
 void  ast_program_add_global(Program *p, GlobalDecl *g);
+
+/* Registra um par (path, source) em Program. Ambos os ponteiros passam a
+ * ser de propriedade do Program (libertados por ast_free_program). Retorna
+ * o ponteiro do path armazenado, util como 'src_path' nao-dono nas
+ * declaracoes obtidas a partir do arquivo. */
+const char *ast_program_register_source(Program *p, char *path_owned, char *source_owned);
 
 /* Procura uma variavel global declarada pelo nome ('name[0..len)').
  * Retorna NULL se nao encontrada. Usado pelo parser apenas em diagnosticos

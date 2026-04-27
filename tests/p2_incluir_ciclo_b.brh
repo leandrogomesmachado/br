@@ -1,0 +1,6 @@
+// 'b' inclui 'a', que ja foi visitado: deve ser silenciosamente ignorado.
+incluir "p2_incluir_ciclo_a.brh";
+
+funcao inteiro funcao_de_b() {
+    retornar 7;
+}

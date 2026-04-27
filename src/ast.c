@@ -306,6 +306,19 @@ void ast_program_init(Program *p)
     p->nstructs  = 0;
     p->globals   = NULL;
     p->nglobals  = 0;
+    p->inc_paths   = NULL;
+    p->inc_sources = NULL;
+    p->ninc        = 0;
+}
+
+const char *ast_program_register_source(Program *p, char *path_owned, char *source_owned)
+{
+    p->inc_paths   = (char **)br_xrealloc(p->inc_paths,   (p->ninc + 1) * sizeof(char *));
+    p->inc_sources = (char **)br_xrealloc(p->inc_sources, (p->ninc + 1) * sizeof(char *));
+    p->inc_paths[p->ninc]   = path_owned;
+    p->inc_sources[p->ninc] = source_owned;
+    p->ninc++;
+    return path_owned;
 }
 
 void ast_program_add_func(Program *p, FuncDecl *f)
@@ -563,10 +576,20 @@ void ast_free_program(Program *p)
         ast_free_global(p->globals[i]);
     }
     free(p->globals);
+    /* Libera buffers de paths/sources adicionados via 'incluir'. */
+    for (size_t i = 0; i < p->ninc; i++) {
+        free(p->inc_paths[i]);
+        free(p->inc_sources[i]);
+    }
+    free(p->inc_paths);
+    free(p->inc_sources);
     p->funcs     = NULL;
     p->nfuncs    = 0;
     p->structs   = NULL;
     p->nstructs  = 0;
     p->globals   = NULL;
     p->nglobals  = 0;
+    p->inc_paths   = NULL;
+    p->inc_sources = NULL;
+    p->ninc        = 0;
 }

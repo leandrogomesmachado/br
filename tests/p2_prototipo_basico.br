@@ -1,0 +1,11 @@
+// Prototipo seguido de definicao com a mesma assinatura.
+// esperado: 42
+funcao inteiro dobro(inteiro x);
+
+funcao inteiro principal() {
+    retornar dobro(21);
+}
+
+funcao inteiro dobro(inteiro x) {
+    retornar x + x;
+}

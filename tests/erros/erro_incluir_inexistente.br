@@ -1,0 +1,6 @@
+// erro: nao foi possivel localizar arquivo incluido
+incluir "arquivo_que_nao_existe_xyz.brh";
+
+funcao inteiro principal() {
+    retornar 0;
+}

@@ -1,0 +1,10 @@
+// erro: tipo do parametro 1 de 'f' diverge do prototipo
+funcao inteiro f(inteiro x);
+
+funcao inteiro f(caractere x) {
+    retornar 0;
+}
+
+funcao inteiro principal() {
+    retornar f(0);
+}

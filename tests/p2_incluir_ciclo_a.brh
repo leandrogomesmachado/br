@@ -1,0 +1,7 @@
+// 'a' inclui 'b', que por sua vez tenta incluir 'a' de novo.
+// O guard de ciclos do parser deve cortar a recursao.
+incluir "p2_incluir_ciclo_b.brh";
+
+funcao inteiro funcao_de_a() {
+    retornar 35;
+}

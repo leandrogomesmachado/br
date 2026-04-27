@@ -1,0 +1,16 @@
+// Inclui um cabecalho e usa as funcoes/globais declaradas la.
+// esperado: 142
+incluir "p2_incluir_lib.brh";
+
+funcao inteiro dobro(inteiro x) {
+    retornar x + x;
+}
+
+funcao inteiro soma(inteiro a, inteiro b) {
+    retornar a + b;
+}
+
+funcao inteiro principal() {
+    // 100 + dobro(soma(10, 11)) = 100 + 42 = 142
+    retornar k_offset + dobro(soma(10, 11));
+}

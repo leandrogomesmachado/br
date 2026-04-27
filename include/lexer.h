@@ -84,6 +84,7 @@ typedef enum {
     TK_KW_PARAR,     /* parar    (break)    */
     TK_KW_CONTINUAR, /* continuar (continue) */
     TK_KW_FACA,      /* faca     (do em do/while) */
+    TK_KW_INCLUIR,   /* incluir "x.brh"; (diretiva top-level) */
 } TokenKind;
 
 typedef struct {

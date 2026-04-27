@@ -1,0 +1,9 @@
+// Verifica que ciclos de 'incluir' sao cortados pelo guard.
+// O proprio arquivo principal e' tambem incluido por b.brh -> ignorado.
+// esperado: 42
+incluir "p2_incluir_ciclo_a.brh";
+incluir "p2_incluir_ciclo.br";  // self-include: deve ser ignorado
+
+funcao inteiro principal() {
+    retornar funcao_de_a() + funcao_de_b();   // 35 + 7
+}

@@ -1,0 +1,18 @@
+// Recursao mutua viabilizada por prototipo (par/impar com decremento).
+// esperado: 1   (4 e' par)
+funcao inteiro par(inteiro n);
+funcao inteiro impar(inteiro n);
+
+funcao inteiro par(inteiro n) {
+    se (n == 0) { retornar 1; }
+    retornar impar(n - 1);
+}
+
+funcao inteiro impar(inteiro n) {
+    se (n == 0) { retornar 0; }
+    retornar par(n - 1);
+}
+
+funcao inteiro principal() {
+    retornar par(4);
+}

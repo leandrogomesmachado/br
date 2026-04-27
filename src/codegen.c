@@ -1238,6 +1238,9 @@ void codegen_emit(FILE *out, const Program *prog)
     fprintf(out, "    .text\n");
 
     for (size_t i = 0; i < prog->nfuncs; i++) {
+        if (prog->funcs[i]->is_prototype) {
+            continue;     /* prototipos nao geram codigo */
+        }
         gen_func(&g, prog->funcs[i]);
     }
 

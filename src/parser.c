@@ -1011,9 +1011,20 @@ static FuncDecl *parse_func(Parser *p)
     f->return_type = rt;
     f->params      = params;
     f->nparams     = nparams;
+    f->src_path    = p->path;
     f->line        = line;
     f->col         = col;
-    parse_block_into(p, &f->body);
+    /* Prototype: 'funcao tipo nome(params);' termina em ';' em vez de bloco.
+     * Util para declarar funcoes definidas mais abaixo, em outro arquivo
+     * (via 'incluir'), ou para permitir recursao mutua sem reordenar. */
+    if (accept(p, TK_SEMI)) {
+        f->is_prototype = 1;
+        f->body.head = NULL;
+        f->body.tail = NULL;
+    } else {
+        f->is_prototype = 0;
+        parse_block_into(p, &f->body);
+    }
     return f;
 }
 
@@ -1032,6 +1043,7 @@ static StructDecl *parse_struct_decl(Parser *p)
     Token name = expect(p, TK_IDENT);
 
     StructDecl *s = ast_struct_decl_new(name.lexeme, name.length, line, col);
+    s->src_path = p->path;
     ast_program_add_struct(p->prog, s);
     expect(p, TK_LBRACE);
     while (p->cur.kind != TK_RBRACE && p->cur.kind != TK_EOF) {
@@ -1165,19 +1177,148 @@ static GlobalDecl *parse_global_decl(Parser *p)
         init = parse_global_initializer(p);
     }
     expect(p, TK_SEMI);
-    return ast_global_decl_new(t, name.lexeme, name.length, init, line, col);
+    GlobalDecl *g = ast_global_decl_new(t, name.lexeme, name.length, init, line, col);
+    g->src_path = p->path;
+    return g;
 }
 
-Program parser_parse_program(Parser *p)
+/* ---------------------------- 'incluir' ------------------------------- *
+ *
+ * Conjunto de paths canonicalizados (realpath) ja visitados, usado para
+ * evitar inclusao em ciclo. Nao confundir com Program::inc_paths, que
+ * guarda apenas os arquivos cujo source o Program e' dono (ou seja, os
+ * verdadeiramente incluidos, excluindo o arquivo principal). */
+typedef struct {
+    char  **paths;       /* donos */
+    size_t  n;
+} VisitedSet;
+
+static int visited_has(const VisitedSet *v, const char *abs)
 {
-    Program prog;
-    ast_program_init(&prog);
-    p->prog = &prog;
+    for (size_t i = 0; i < v->n; i++) {
+        if (strcmp(v->paths[i], abs) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void visited_add(VisitedSet *v, char *abs_owned)
+{
+    v->paths = (char **)br_xrealloc(v->paths, (v->n + 1) * sizeof(char *));
+    v->paths[v->n++] = abs_owned;
+}
+
+static void visited_free(VisitedSet *v)
+{
+    for (size_t i = 0; i < v->n; i++) {
+        free(v->paths[i]);
+    }
+    free(v->paths);
+    v->paths = NULL;
+    v->n = 0;
+}
+
+/* Resolve o path passado em 'incluir "X"' para uma string absoluta
+ * canonicalizada via realpath. Aloca a string retornada (chamador libera
+ * com free). Retorna NULL se o arquivo nao puder ser localizado. */
+static char *resolve_include_path(const char *current_file, const char *rel)
+{
+    if (rel[0] == '/') {
+        return realpath(rel, NULL);
+    }
+    const char *slash = strrchr(current_file, '/');
+    if (!slash) {
+        return realpath(rel, NULL);
+    }
+    size_t dirlen = (size_t)(slash - current_file);
+    size_t total  = dirlen + 1 + strlen(rel) + 1;
+    char  *buf    = (char *)br_xmalloc(total);
+    memcpy(buf, current_file, dirlen);
+    buf[dirlen] = '/';
+    strcpy(buf + dirlen + 1, rel);
+    char *abs = realpath(buf, NULL);
+    free(buf);
+    return abs;
+}
+
+static void parse_top_level_loop(Parser *p, VisitedSet *visited);
+
+static void parse_include_directive(Parser *p, VisitedSet *visited)
+{
+    int kw_line = p->cur.line, kw_col = p->cur.col;
+    advance(p);                                 /* consome 'incluir' */
+    if (p->cur.kind != TK_STR_LIT) {
+        br_fatal_at(p->path, p->cur.line, p->cur.col,
+                    "esperado literal de string apos 'incluir', encontrado %s",
+                    token_kind_name(p->cur.kind));
+    }
+    Token str_tok = p->cur;
+    advance(p);
+    expect(p, TK_SEMI);
+
+    size_t rel_len_raw = 0;
+    char  *rel_raw     = decode_string_literal(str_tok.lexeme, str_tok.length, &rel_len_raw);
+    if (rel_len_raw == 0) {
+        free(rel_raw);
+        br_fatal_at(p->path, kw_line, kw_col,
+                    "caminho de 'incluir' nao pode ser vazio");
+    }
+    /* decode_string_literal nao termina o buffer em '\0'; criamos uma
+     * copia C-string para uso com strlen/strcpy/realpath. */
+    char *rel = (char *)br_xmalloc(rel_len_raw + 1);
+    memcpy(rel, rel_raw, rel_len_raw);
+    rel[rel_len_raw] = '\0';
+    free(rel_raw);
+
+    char *abs = resolve_include_path(p->path, rel);
+    if (!abs) {
+        br_fatal_at(p->path, kw_line, kw_col,
+                    "nao foi possivel localizar arquivo incluido '%s'", rel);
+    }
+    free(rel);
+
+    if (visited_has(visited, abs)) {
+        free(abs);
+        return;     /* ja visitado: silenciosamente ignora */
+    }
+    /* Marca como visitado ANTES de ler/parsear, para que ciclos sejam
+     * cortados mesmo se o arquivo se incluir indiretamente. */
+    visited_add(visited, abs);
+    /* 'abs' agora pertence ao VisitedSet; um clone vai ser registrado em
+     * Program para servir de src_path nao-dono nas decls. */
+
+    size_t src_size = 0;
+    char  *src = br_read_file(abs, &src_size);
+    if (!src) {
+        br_fatal_at(p->path, kw_line, kw_col,
+                    "nao foi possivel ler arquivo incluido '%s'", abs);
+    }
+    char *abs_clone = br_xstrdup(abs);
+    const char *path_for_decls =
+        ast_program_register_source(p->prog, abs_clone, src);
+
+    Lexer  sub_lx;
+    Parser sub_ps;
+    lexer_init(&sub_lx, src, path_for_decls);
+    parser_init(&sub_ps, &sub_lx, path_for_decls);
+    sub_ps.prog = p->prog;
+    parse_top_level_loop(&sub_ps, visited);
+    if (sub_ps.cur.kind != TK_EOF) {
+        br_fatal_at(path_for_decls, sub_ps.cur.line, sub_ps.cur.col,
+                    "tokens inesperados apos fim do arquivo incluido");
+    }
+}
+
+static void parse_top_level_loop(Parser *p, VisitedSet *visited)
+{
     while (p->cur.kind != TK_EOF) {
-        if (p->cur.kind == TK_KW_ESTRUTURA) {
+        if (p->cur.kind == TK_KW_INCLUIR) {
+            parse_include_directive(p, visited);
+        } else if (p->cur.kind == TK_KW_ESTRUTURA) {
             if (top_estrutura_is_global(p)) {
                 GlobalDecl *g = parse_global_decl(p);
-                ast_program_add_global(&prog, g);
+                ast_program_add_global(p->prog, g);
             } else {
                 /* parse_struct_decl ja adiciona a estrutura em p->prog. */
                 (void)parse_struct_decl(p);
@@ -1186,12 +1327,31 @@ Program parser_parse_program(Parser *p)
                    p->cur.kind == TK_KW_CARACTERE ||
                    p->cur.kind == TK_KW_VAZIO) {
             GlobalDecl *g = parse_global_decl(p);
-            ast_program_add_global(&prog, g);
+            ast_program_add_global(p->prog, g);
         } else {
             FuncDecl *f = parse_func(p);
-            ast_program_add_func(&prog, f);
+            ast_program_add_func(p->prog, f);
         }
     }
+}
+
+Program parser_parse_program(Parser *p)
+{
+    Program prog;
+    ast_program_init(&prog);
+    p->prog = &prog;
+
+    VisitedSet visited = { NULL, 0 };
+    /* Marca o arquivo principal como visitado para que um 'incluir' do
+     * proprio arquivo seja ignorado. Usa realpath para canonicalizar. */
+    char *main_abs = realpath(p->path, NULL);
+    if (main_abs) {
+        visited_add(&visited, main_abs);
+    }
+
+    parse_top_level_loop(p, &visited);
+
+    visited_free(&visited);
     p->prog = NULL;
     if (prog.nfuncs == 0) {
         br_fatal_at(p->path, 1, 1,

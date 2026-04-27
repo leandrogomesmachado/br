@@ -29,6 +29,7 @@ static const Keyword KEYWORDS[] = {
     {"parar",      TK_KW_PARAR},
     {"continuar",  TK_KW_CONTINUAR},
     {"faca",       TK_KW_FACA},
+    {"incluir",    TK_KW_INCLUIR},
 };
 
 void lexer_init(Lexer *lx, const char *src, const char *path)
@@ -400,6 +401,7 @@ const char *token_kind_name(TokenKind k)
         case TK_KW_PARAR:     return "'parar'";
         case TK_KW_CONTINUAR: return "'continuar'";
         case TK_KW_FACA:      return "'faca'";
+        case TK_KW_INCLUIR:   return "'incluir'";
     }
     return "<?>";
 }

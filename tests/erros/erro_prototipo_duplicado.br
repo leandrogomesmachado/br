@@ -1,0 +1,7 @@
+// erro: funcao 'f' tem dois prototipos
+funcao inteiro f(inteiro x);
+funcao inteiro f(inteiro x);
+
+funcao inteiro principal() {
+    retornar 0;
+}
