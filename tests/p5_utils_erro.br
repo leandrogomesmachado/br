@@ -1,0 +1,21 @@
+// Testa as funcoes de I/O dinamico (sem terminar via erro_fatal*).
+// Escreve em stdout (fd=1) usando escrever_em_fd_* para que o runner
+// possa comparar com tests/p5_utils_erro.saida.
+// esperado: 0
+incluir "../runtime/utils.br";
+
+funcao inteiro principal() {
+    escrever_em_fd_texto(SAIDA_PADRAO, "linha=");
+    escrever_em_fd_inteiro(SAIDA_PADRAO, 42);
+    escrever_em_fd_byte(SAIDA_PADRAO, '\n');
+
+    escrever_em_fd_texto(SAIDA_PADRAO, "neg=");
+    escrever_em_fd_inteiro(SAIDA_PADRAO, -7);
+    escrever_em_fd_byte(SAIDA_PADRAO, '\n');
+
+    escrever_em_fd_texto(SAIDA_PADRAO, "zero=");
+    escrever_em_fd_inteiro(SAIDA_PADRAO, 0);
+    escrever_em_fd_byte(SAIDA_PADRAO, '\n');
+
+    retornar 0;
+}

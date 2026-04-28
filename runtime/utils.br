@@ -201,6 +201,90 @@ funcao vazio *ler_arquivo_inteiro(caractere *path, inteiro *out_tam) {
     retornar resultado;
 }
 
+// ---------------------------------------------------------------------
+// I/O dinamico por fd
+// ---------------------------------------------------------------------
+
+funcao vazio escrever_em_fd_byte(inteiro fd, inteiro c) {
+    // Aloca um buffer de 1 byte para passar ao escrever_bytes (que so
+    // aceita ponteiro). Em hot paths reais, o chamador deveria acumular
+    // num Buffer e flushar de uma vez; aqui prioriza-se a simplicidade.
+    vazio *p = alocar(1);
+    se (p == nulo) {
+        _utils_oom();
+    }
+    escrever_byte(p, 0, c);
+    escrever_bytes(fd, p, 1);
+    liberar(p, 1);
+}
+
+funcao vazio escrever_em_fd_texto(inteiro fd, caractere *cstr) {
+    inteiro n = tamanho_da_string(cstr);
+    se (n > 0) {
+        escrever_bytes(fd, cstr, n);
+    }
+}
+
+funcao vazio escrever_em_fd_inteiro(inteiro fd, inteiro v) {
+    estrutura Buffer *b = buf_novo(20);
+    buf_anexar_inteiro(b, v);
+    se (b->tam > 0) {
+        escrever_bytes(fd, b->dados, b->tam);
+    }
+    buf_destruir(b);
+}
+
+funcao vazio escrever_erro_byte(inteiro c) {
+    escrever_em_fd_byte(ERRO_PADRAO, c);
+}
+
+funcao vazio escrever_erro_texto(caractere *cstr) {
+    escrever_em_fd_texto(ERRO_PADRAO, cstr);
+}
+
+funcao vazio escrever_erro_inteiro(inteiro v) {
+    escrever_em_fd_inteiro(ERRO_PADRAO, v);
+}
+
+// ---------------------------------------------------------------------
+// Erros fatais
+// ---------------------------------------------------------------------
+
+funcao vazio erro_inicio() {
+    escrever_erro_texto("brc: erro: ");
+}
+
+funcao vazio erro_inicio_pos(caractere *path, inteiro line, inteiro col) {
+    escrever_erro_texto(path);
+    escrever_erro_byte(':');
+    escrever_erro_inteiro(line);
+    escrever_erro_byte(':');
+    escrever_erro_inteiro(col);
+    escrever_erro_texto(": erro: ");
+}
+
+funcao vazio erro_concluir() {
+    escrever_erro_byte('\n');
+    sair(1);
+}
+
+funcao vazio erro_fatal(caractere *msg) {
+    erro_inicio();
+    escrever_erro_texto(msg);
+    erro_concluir();
+}
+
+funcao vazio erro_fatal_pos(caractere *path, inteiro line, inteiro col,
+                            caractere *msg) {
+    erro_inicio_pos(path, line, col);
+    escrever_erro_texto(msg);
+    erro_concluir();
+}
+
+// ---------------------------------------------------------------------
+// I/O de arquivos (escrita)
+// ---------------------------------------------------------------------
+
 funcao inteiro escrever_arquivo(caractere *path, vazio *dados, inteiro n) {
     inteiro fd = abrir_arquivo(path, ESCREVER | CRIAR | TRUNCAR, PADRAO_644);
     se (fd < 0) {

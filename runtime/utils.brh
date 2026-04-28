@@ -54,3 +54,44 @@ funcao vazio *ler_arquivo_inteiro(caractere *path, inteiro *out_tam);
 // Escreve 'n' bytes em 'path' criando/truncando o arquivo (modo 0644).
 // Retorna 0 em sucesso ou -errno.
 funcao inteiro escrever_arquivo(caractere *path, vazio *dados, inteiro n);
+
+// ---------------------------------------------------------------------
+// I/O dinamico por descritor de arquivo (saida em texto)
+// ---------------------------------------------------------------------
+//
+// Os builtins 'escrever_texto'/'escrever_erro'/'escrever_inteiro'
+// existem mas operam sobre stdout/stderr fixos e exigem literais.
+// Estes helpers genericos aceitam qualquer fd e qualquer string em
+// runtime, e sao a base das mensagens de erro do compilador.
+
+funcao vazio escrever_em_fd_byte(inteiro fd, inteiro c);
+funcao vazio escrever_em_fd_texto(inteiro fd, caractere *cstr);
+funcao vazio escrever_em_fd_inteiro(inteiro fd, inteiro v);
+
+// Atalhos para stderr (fd = ERRO_PADRAO).
+funcao vazio escrever_erro_byte(inteiro c);
+funcao vazio escrever_erro_texto(caractere *cstr);
+funcao vazio escrever_erro_inteiro(inteiro v);
+
+// ---------------------------------------------------------------------
+// Erros fatais com formato consistente
+// ---------------------------------------------------------------------
+//
+// Variantes terminadas em '\n' que chamam 'sair(1)':
+//   erro_fatal     ("msg")
+//   erro_fatal_pos (path, line, col, "msg")
+//
+// Para mensagens compostas (texto + inteiro + texto, etc.), use:
+//   erro_inicio() ou erro_inicio_pos(path, line, col);
+//   escrever_erro_texto(...);
+//   escrever_erro_inteiro(...);
+//   ...
+//   erro_concluir();   // emite '\n' e chama sair(1).
+
+funcao vazio erro_fatal(caractere *msg);
+funcao vazio erro_fatal_pos(caractere *path, inteiro line, inteiro col,
+                            caractere *msg);
+
+funcao vazio erro_inicio();
+funcao vazio erro_inicio_pos(caractere *path, inteiro line, inteiro col);
+funcao vazio erro_concluir();
