@@ -1,0 +1,34 @@
+// Cobre os literais que o lexer-em-BR aprendeu a reconhecer:
+// hex/bin/oct, char (com escape), string (com escape).
+// esperado: 0
+incluir "../runtime/utils.br";
+incluir "../runtime/lexer.br";
+
+funcao vazio imprime(estrutura Lexer *lx, estrutura Token *t) {
+    escrever_em_fd_inteiro(SAIDA_PADRAO, t->tipo);
+    escrever_em_fd_byte(SAIDA_PADRAO, ':');
+    escrever_em_fd_inteiro(SAIDA_PADRAO, t->valor_int);
+    escrever_em_fd_byte(SAIDA_PADRAO, ':');
+    inteiro i = 0;
+    enquanto (i < t->tam) {
+        escrever_em_fd_byte(SAIDA_PADRAO,
+                            ler_byte(lx->fonte, t->lexema_offset + i));
+        i = i + 1;
+    }
+    escrever_em_fd_byte(SAIDA_PADRAO, '\n');
+}
+
+funcao inteiro principal() {
+    caractere *src = "0xFF 0b1010 0o17 'A' '\\n' \"ola\\n\"";
+    estrutura Lexer lx;
+    lexer_init(&lx, src, "<teste>");
+    estrutura Token t;
+    enquanto (1) {
+        lexer_proximo(&lx, &t);
+        imprime(&lx, &t);
+        se (t.tipo == T_EOF) {
+            parar;
+        }
+    }
+    retornar 0;
+}

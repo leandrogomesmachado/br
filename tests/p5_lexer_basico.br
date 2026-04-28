@@ -1,0 +1,42 @@
+// Auto-teste do lexer escrito em BR (runtime/lexer.br) sobre uma
+// expressao curta que exercita: palavras-chave, identificadores,
+// literais inteiros decimais, operadores de 1 e 2 caracteres,
+// pontuacao, comentarios de linha e bloco. Imprime cada token em
+// stdout no formato '<tipo>:<tam>:<lexema>[=<valor>]' para que o
+// runner valide byte a byte contra p5_lexer_basico.saida.
+// esperado: 0
+incluir "../runtime/utils.br";
+incluir "../runtime/lexer.br";
+
+funcao vazio imprime(estrutura Lexer *lx, estrutura Token *t) {
+    escrever_em_fd_inteiro(SAIDA_PADRAO, t->tipo);
+    escrever_em_fd_byte(SAIDA_PADRAO, ':');
+    escrever_em_fd_inteiro(SAIDA_PADRAO, t->tam);
+    escrever_em_fd_byte(SAIDA_PADRAO, ':');
+    inteiro i = 0;
+    enquanto (i < t->tam) {
+        escrever_em_fd_byte(SAIDA_PADRAO,
+                            ler_byte(lx->fonte, t->lexema_offset + i));
+        i = i + 1;
+    }
+    se (t->tipo == T_INT_LIT) {
+        escrever_em_fd_byte(SAIDA_PADRAO, '=');
+        escrever_em_fd_inteiro(SAIDA_PADRAO, t->valor_int);
+    }
+    escrever_em_fd_byte(SAIDA_PADRAO, '\n');
+}
+
+funcao inteiro principal() {
+    caractere *src = "// olar\nfuncao inteiro principal() {\n    inteiro x = 12 + 30;\n    retornar x;\n} /* fim */\n";
+    estrutura Lexer lx;
+    lexer_init(&lx, src, "<teste>");
+    estrutura Token t;
+    enquanto (1) {
+        lexer_proximo(&lx, &t);
+        imprime(&lx, &t);
+        se (t.tipo == T_EOF) {
+            parar;
+        }
+    }
+    retornar 0;
+}

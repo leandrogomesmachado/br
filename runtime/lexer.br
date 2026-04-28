@@ -1,0 +1,464 @@
+// Lexer da linguagem BR escrito na propria linguagem BR.
+//
+// Esta versao cobre o subconjunto necessario para que o brc-em-BR possa
+// processar o seu proprio fonte: identificadores, palavras-chave,
+// inteiros decimais, todos os operadores e pontuacao, e os literais
+// de caractere e string. Hex/binario/octal e os literais de caractere
+// e string com escapes serao adicionados em iteracao seguinte.
+incluir "sistema.brh";
+incluir "utils.brh";
+incluir "lexer.brh";
+
+// ---------------------------------------------------------------------
+// Helpers de classificacao
+// ---------------------------------------------------------------------
+
+funcao inteiro _lex_is_digit(inteiro c) {
+    se (c >= '0' && c <= '9') { retornar 1; }
+    retornar 0;
+}
+
+funcao inteiro _lex_is_alpha(inteiro c) {
+    se (c >= 'a' && c <= 'z') { retornar 1; }
+    se (c >= 'A' && c <= 'Z') { retornar 1; }
+    retornar 0;
+}
+
+funcao inteiro _lex_is_ident_inicio(inteiro c) {
+    se (_lex_is_alpha(c)) { retornar 1; }
+    se (c == '_')         { retornar 1; }
+    retornar 0;
+}
+
+funcao inteiro _lex_is_ident_cont(inteiro c) {
+    se (_lex_is_ident_inicio(c)) { retornar 1; }
+    se (_lex_is_digit(c))        { retornar 1; }
+    retornar 0;
+}
+
+// Retorna o byte em fonte[pos+offset], ou 0 fora do alcance pelo
+// terminador NUL. Como 'fonte' termina em '\0', basta confiar nele.
+funcao inteiro _lex_olhar(estrutura Lexer *lx, inteiro offset) {
+    retornar ler_byte(lx->fonte, lx->pos + offset);
+}
+
+// Avanca um byte, atualizando linha/coluna.
+funcao vazio _lex_avancar(estrutura Lexer *lx) {
+    inteiro c = ler_byte(lx->fonte, lx->pos);
+    se (c == 0) {
+        retornar;     // defensivo: nao avanca alem do EOF
+    }
+    lx->pos = lx->pos + 1;
+    se (c == '\n') {
+        lx->linha  = lx->linha + 1;
+        lx->coluna = 1;
+    } senao {
+        lx->coluna = lx->coluna + 1;
+    }
+}
+
+// ---------------------------------------------------------------------
+// Whitespace e comentarios
+// ---------------------------------------------------------------------
+
+funcao vazio _lex_pular(estrutura Lexer *lx) {
+    enquanto (1) {
+        inteiro c = ler_byte(lx->fonte, lx->pos);
+        se (c == 0) {
+            retornar;
+        }
+        se (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+            _lex_avancar(lx);
+            continuar;
+        }
+        se (c == '/' && _lex_olhar(lx, 1) == '/') {
+            // comentario de linha: consome ate '\n' ou EOF
+            enquanto (ler_byte(lx->fonte, lx->pos) != 0 &&
+                      ler_byte(lx->fonte, lx->pos) != '\n') {
+                _lex_avancar(lx);
+            }
+            continuar;
+        }
+        se (c == '/' && _lex_olhar(lx, 1) == '*') {
+            // comentario de bloco
+            inteiro lin = lx->linha;
+            inteiro col = lx->coluna;
+            _lex_avancar(lx);
+            _lex_avancar(lx);
+            inteiro fechou = 0;
+            enquanto (ler_byte(lx->fonte, lx->pos) != 0) {
+                se (ler_byte(lx->fonte, lx->pos) == '*' &&
+                    _lex_olhar(lx, 1) == '/') {
+                    _lex_avancar(lx);
+                    _lex_avancar(lx);
+                    fechou = 1;
+                    parar;
+                }
+                _lex_avancar(lx);
+            }
+            se (fechou == 0) {
+                erro_fatal_pos(lx->caminho, lin, col,
+                               "comentario de bloco nao terminado");
+            }
+            continuar;
+        }
+        retornar;
+    }
+}
+
+// ---------------------------------------------------------------------
+// Lookup de palavras-chave
+// ---------------------------------------------------------------------
+
+// Compara fonte[start..start+tam] com a string C 'kw' (terminada em
+// '\0'). Retorna 1 em igualdade, 0 caso contrario.
+funcao inteiro _lex_match_kw(caractere *fonte, inteiro start, inteiro tam,
+                             caractere *kw) {
+    inteiro tam_kw = tamanho_da_string(kw);
+    se (tam != tam_kw) {
+        retornar 0;
+    }
+    inteiro i = 0;
+    enquanto (i < tam) {
+        se (ler_byte(fonte, start + i) != ler_byte(kw, i)) {
+            retornar 0;
+        }
+        i = i + 1;
+    }
+    retornar 1;
+}
+
+// Recebe o lexema (offset/tam) e retorna o tipo de token: T_KW_* se
+// for palavra-chave, T_IDENT caso contrario.
+funcao inteiro _lex_tipo_palavra(caractere *fonte, inteiro start, inteiro tam) {
+    se (_lex_match_kw(fonte, start, tam, "funcao"))     { retornar T_KW_FUNCAO; }
+    se (_lex_match_kw(fonte, start, tam, "inteiro"))    { retornar T_KW_INTEIRO; }
+    se (_lex_match_kw(fonte, start, tam, "caractere"))  { retornar T_KW_CARACTERE; }
+    se (_lex_match_kw(fonte, start, tam, "vazio"))      { retornar T_KW_VAZIO; }
+    se (_lex_match_kw(fonte, start, tam, "se"))         { retornar T_KW_SE; }
+    se (_lex_match_kw(fonte, start, tam, "senao"))      { retornar T_KW_SENAO; }
+    se (_lex_match_kw(fonte, start, tam, "enquanto"))   { retornar T_KW_ENQUANTO; }
+    se (_lex_match_kw(fonte, start, tam, "para"))       { retornar T_KW_PARA; }
+    se (_lex_match_kw(fonte, start, tam, "retornar"))   { retornar T_KW_RETORNAR; }
+    se (_lex_match_kw(fonte, start, tam, "estrutura"))  { retornar T_KW_ESTRUTURA; }
+    se (_lex_match_kw(fonte, start, tam, "nulo"))       { retornar T_KW_NULO; }
+    se (_lex_match_kw(fonte, start, tam, "tamanho_de")) { retornar T_KW_TAMANHO_DE; }
+    se (_lex_match_kw(fonte, start, tam, "escolher"))   { retornar T_KW_ESCOLHER; }
+    se (_lex_match_kw(fonte, start, tam, "caso"))       { retornar T_KW_CASO; }
+    se (_lex_match_kw(fonte, start, tam, "parar"))      { retornar T_KW_PARAR; }
+    se (_lex_match_kw(fonte, start, tam, "continuar"))  { retornar T_KW_CONTINUAR; }
+    se (_lex_match_kw(fonte, start, tam, "faca"))       { retornar T_KW_FACA; }
+    se (_lex_match_kw(fonte, start, tam, "incluir"))    { retornar T_KW_INCLUIR; }
+    se (_lex_match_kw(fonte, start, tam, "enumeracao")) { retornar T_KW_ENUMERACAO; }
+    retornar T_IDENT;
+}
+
+// ---------------------------------------------------------------------
+// API publica
+// ---------------------------------------------------------------------
+
+funcao vazio lexer_init(estrutura Lexer *lx, caractere *fonte, caractere *caminho) {
+    lx->fonte   = fonte;
+    lx->caminho = caminho;
+    lx->pos     = 0;
+    lx->linha   = 1;
+    lx->coluna  = 1;
+}
+
+// Helper para preencher 'out' com um token simples (sem valor).
+funcao vazio _lex_emite(estrutura Token *out, inteiro tipo, inteiro start_pos,
+                       inteiro start_lin, inteiro start_col, inteiro tam) {
+    out->tipo          = tipo;
+    out->lexema_offset = start_pos;
+    out->tam           = tam;
+    out->linha         = start_lin;
+    out->coluna        = start_col;
+    out->valor_int     = 0;
+}
+
+funcao vazio lexer_proximo(estrutura Lexer *lx, estrutura Token *out) {
+    _lex_pular(lx);
+
+    inteiro start_pos = lx->pos;
+    inteiro start_lin = lx->linha;
+    inteiro start_col = lx->coluna;
+
+    inteiro c = ler_byte(lx->fonte, lx->pos);
+    se (c == 0) {
+        _lex_emite(out, T_EOF, start_pos, start_lin, start_col, 0);
+        retornar;
+    }
+
+    // identificador ou palavra-chave
+    se (_lex_is_ident_inicio(c)) {
+        enquanto (_lex_is_ident_cont(ler_byte(lx->fonte, lx->pos))) {
+            _lex_avancar(lx);
+        }
+        inteiro tam  = lx->pos - start_pos;
+        inteiro tipo = _lex_tipo_palavra(lx->fonte, start_pos, tam);
+        _lex_emite(out, tipo, start_pos, start_lin, start_col, tam);
+        retornar;
+    }
+
+    // literais inteiros: decimal, ou prefixados '0x' (hex), '0b' (bin),
+    // '0o' (oct). '012' aqui e' 12 (decimal): nao seguimos a convencao
+    // de C de '0' inicial implicar octal.
+    se (_lex_is_digit(c)) {
+        inteiro v = 0;
+        inteiro digitos = 0;
+        se (c == '0' && (_lex_olhar(lx, 1) == 'x' || _lex_olhar(lx, 1) == 'X')) {
+            _lex_avancar(lx); _lex_avancar(lx);
+            enquanto (1) {
+                inteiro d = ler_byte(lx->fonte, lx->pos);
+                inteiro dv;
+                se (d >= '0' && d <= '9')      { dv = d - '0'; }
+                senao se (d >= 'a' && d <= 'f') { dv = d - 'a' + 10; }
+                senao se (d >= 'A' && d <= 'F') { dv = d - 'A' + 10; }
+                senao                           { parar; }
+                v = v * 16 + dv;
+                digitos = digitos + 1;
+                _lex_avancar(lx);
+            }
+            se (digitos == 0) {
+                erro_fatal_pos(lx->caminho, start_lin, start_col,
+                               "literal hexadecimal sem digitos");
+            }
+        } senao se (c == '0' && (_lex_olhar(lx, 1) == 'b' || _lex_olhar(lx, 1) == 'B')) {
+            _lex_avancar(lx); _lex_avancar(lx);
+            enquanto (1) {
+                inteiro d = ler_byte(lx->fonte, lx->pos);
+                se (d != '0' && d != '1') { parar; }
+                v = v * 2 + (d - '0');
+                digitos = digitos + 1;
+                _lex_avancar(lx);
+            }
+            se (digitos == 0) {
+                erro_fatal_pos(lx->caminho, start_lin, start_col,
+                               "literal binario sem digitos");
+            }
+        } senao se (c == '0' && (_lex_olhar(lx, 1) == 'o' || _lex_olhar(lx, 1) == 'O')) {
+            _lex_avancar(lx); _lex_avancar(lx);
+            enquanto (1) {
+                inteiro d = ler_byte(lx->fonte, lx->pos);
+                se (d < '0' || d > '7') { parar; }
+                v = v * 8 + (d - '0');
+                digitos = digitos + 1;
+                _lex_avancar(lx);
+            }
+            se (digitos == 0) {
+                erro_fatal_pos(lx->caminho, start_lin, start_col,
+                               "literal octal sem digitos");
+            }
+        } senao {
+            enquanto (_lex_is_digit(ler_byte(lx->fonte, lx->pos))) {
+                v = v * 10 + (ler_byte(lx->fonte, lx->pos) - '0');
+                _lex_avancar(lx);
+            }
+        }
+        // Identificador colado e' erro (12abc, 0xFG).
+        se (_lex_is_ident_inicio(ler_byte(lx->fonte, lx->pos))) {
+            erro_fatal_pos(lx->caminho, lx->linha, lx->coluna,
+                           "caractere inesperado apos literal numerico");
+        }
+        inteiro tam = lx->pos - start_pos;
+        out->tipo          = T_INT_LIT;
+        out->lexema_offset = start_pos;
+        out->tam           = tam;
+        out->linha         = start_lin;
+        out->coluna        = start_col;
+        out->valor_int     = v;
+        retornar;
+    }
+
+    // literal de caractere: 'c' ou escape '\n' '\t' '\r' '\0' '\\' '\'' '\"'
+    se (c == '\'') {
+        _lex_avancar(lx);
+        inteiro ch = ler_byte(lx->fonte, lx->pos);
+        inteiro decoded;
+        se (ch == '\\') {
+            _lex_avancar(lx);
+            inteiro esc = ler_byte(lx->fonte, lx->pos);
+            se (esc == 'n')        { decoded = '\n'; }
+            senao se (esc == 't')  { decoded = '\t'; }
+            senao se (esc == 'r')  { decoded = '\r'; }
+            senao se (esc == '0')  { decoded = '\0'; }
+            senao se (esc == '\\') { decoded = '\\'; }
+            senao se (esc == '\'') { decoded = '\''; }
+            senao se (esc == '"')  { decoded = '"'; }
+            senao {
+                erro_fatal_pos(lx->caminho, lx->linha, lx->coluna,
+                               "escape invalido em literal de caractere");
+                decoded = 0;     // inalcancavel
+            }
+            _lex_avancar(lx);
+        } senao se (ch == '\'' || ch == 0 || ch == '\n') {
+            erro_fatal_pos(lx->caminho, start_lin, start_col,
+                           "literal de caractere invalido");
+            decoded = 0;
+        } senao {
+            decoded = ch;
+            _lex_avancar(lx);
+        }
+        se (ler_byte(lx->fonte, lx->pos) != '\'') {
+            erro_fatal_pos(lx->caminho, lx->linha, lx->coluna,
+                           "esperado fechar literal de caractere com '");
+        }
+        _lex_avancar(lx);
+        inteiro tam = lx->pos - start_pos;
+        out->tipo          = T_INT_LIT;
+        out->lexema_offset = start_pos;
+        out->tam           = tam;
+        out->linha         = start_lin;
+        out->coluna        = start_col;
+        out->valor_int     = decoded;
+        retornar;
+    }
+
+    // literal de string: "...". Lexema inclui as aspas; decodificacao
+    // de escapes fica a cargo do consumidor (mesmo design do lexer.c).
+    se (c == '"') {
+        _lex_avancar(lx);
+        enquanto (1) {
+            inteiro ch = ler_byte(lx->fonte, lx->pos);
+            se (ch == 0 || ch == '\n') {
+                erro_fatal_pos(lx->caminho, start_lin, start_col,
+                               "literal de string nao terminado");
+            }
+            se (ch == '"') {
+                _lex_avancar(lx);
+                parar;
+            }
+            se (ch == '\\') {
+                _lex_avancar(lx);
+                inteiro esc = ler_byte(lx->fonte, lx->pos);
+                se (esc == 0) {
+                    erro_fatal_pos(lx->caminho, start_lin, start_col,
+                                   "escape nao terminado em literal de string");
+                }
+                se (esc != 'n' && esc != 't' && esc != 'r' && esc != '0' &&
+                    esc != '\\' && esc != '\'' && esc != '"') {
+                    erro_fatal_pos(lx->caminho, lx->linha, lx->coluna,
+                                   "escape invalido em literal de string");
+                }
+                _lex_avancar(lx);
+                continuar;
+            }
+            _lex_avancar(lx);
+        }
+        inteiro tam = lx->pos - start_pos;
+        out->tipo          = T_STR_LIT;
+        out->lexema_offset = start_pos;
+        out->tam           = tam;
+        out->linha         = start_lin;
+        out->coluna        = start_col;
+        out->valor_int     = 0;
+        retornar;
+    }
+
+    // operadores e pontuacao
+    inteiro c2 = _lex_olhar(lx, 1);
+    _lex_avancar(lx);
+
+    se (c == '(') { _lex_emite(out, T_LPAREN, start_pos, start_lin, start_col, 1); retornar; }
+    se (c == ')') { _lex_emite(out, T_RPAREN, start_pos, start_lin, start_col, 1); retornar; }
+    se (c == '{') { _lex_emite(out, T_LBRACE, start_pos, start_lin, start_col, 1); retornar; }
+    se (c == '}') { _lex_emite(out, T_RBRACE, start_pos, start_lin, start_col, 1); retornar; }
+    se (c == '[') { _lex_emite(out, T_LBRACK, start_pos, start_lin, start_col, 1); retornar; }
+    se (c == ']') { _lex_emite(out, T_RBRACK, start_pos, start_lin, start_col, 1); retornar; }
+    se (c == ';') { _lex_emite(out, T_SEMI,   start_pos, start_lin, start_col, 1); retornar; }
+    se (c == ':') { _lex_emite(out, T_COLON,  start_pos, start_lin, start_col, 1); retornar; }
+    se (c == ',') { _lex_emite(out, T_COMMA,  start_pos, start_lin, start_col, 1); retornar; }
+    se (c == '.') { _lex_emite(out, T_DOT,    start_pos, start_lin, start_col, 1); retornar; }
+    se (c == '~') { _lex_emite(out, T_TILDE,  start_pos, start_lin, start_col, 1); retornar; }
+
+    se (c == '+') {
+        se (c2 == '=') { _lex_avancar(lx); _lex_emite(out, T_PLUS_ASSIGN, start_pos, start_lin, start_col, 2); retornar; }
+        se (c2 == '+') { _lex_avancar(lx); _lex_emite(out, T_PLUS_PLUS,   start_pos, start_lin, start_col, 2); retornar; }
+        _lex_emite(out, T_PLUS, start_pos, start_lin, start_col, 1);
+        retornar;
+    }
+    se (c == '-') {
+        se (c2 == '=') { _lex_avancar(lx); _lex_emite(out, T_MINUS_ASSIGN, start_pos, start_lin, start_col, 2); retornar; }
+        se (c2 == '-') { _lex_avancar(lx); _lex_emite(out, T_MINUS_MINUS,  start_pos, start_lin, start_col, 2); retornar; }
+        se (c2 == '>') { _lex_avancar(lx); _lex_emite(out, T_ARROW,        start_pos, start_lin, start_col, 2); retornar; }
+        _lex_emite(out, T_MINUS, start_pos, start_lin, start_col, 1);
+        retornar;
+    }
+    se (c == '*') {
+        se (c2 == '=') { _lex_avancar(lx); _lex_emite(out, T_STAR_ASSIGN, start_pos, start_lin, start_col, 2); retornar; }
+        _lex_emite(out, T_STAR, start_pos, start_lin, start_col, 1);
+        retornar;
+    }
+    se (c == '/') {
+        // Comentarios ja foram tratados em _lex_pular, aqui sobra apenas
+        // o operador de divisao e seu composto.
+        se (c2 == '=') { _lex_avancar(lx); _lex_emite(out, T_SLASH_ASSIGN, start_pos, start_lin, start_col, 2); retornar; }
+        _lex_emite(out, T_SLASH, start_pos, start_lin, start_col, 1);
+        retornar;
+    }
+    se (c == '%') {
+        se (c2 == '=') { _lex_avancar(lx); _lex_emite(out, T_PERCENT_ASSIGN, start_pos, start_lin, start_col, 2); retornar; }
+        _lex_emite(out, T_PERCENT, start_pos, start_lin, start_col, 1);
+        retornar;
+    }
+    se (c == '=') {
+        se (c2 == '=') { _lex_avancar(lx); _lex_emite(out, T_EQ,     start_pos, start_lin, start_col, 2); retornar; }
+        _lex_emite(out, T_ASSIGN, start_pos, start_lin, start_col, 1);
+        retornar;
+    }
+    se (c == '!') {
+        se (c2 == '=') { _lex_avancar(lx); _lex_emite(out, T_NE,   start_pos, start_lin, start_col, 2); retornar; }
+        _lex_emite(out, T_BANG, start_pos, start_lin, start_col, 1);
+        retornar;
+    }
+    se (c == '<') {
+        se (c2 == '=') { _lex_avancar(lx); _lex_emite(out, T_LE,           start_pos, start_lin, start_col, 2); retornar; }
+        se (c2 == '<') {
+            _lex_avancar(lx);
+            se (_lex_olhar(lx, 0) == '=') {
+                _lex_avancar(lx);
+                _lex_emite(out, T_LSHIFT_ASSIGN, start_pos, start_lin, start_col, 3);
+                retornar;
+            }
+            _lex_emite(out, T_LSHIFT, start_pos, start_lin, start_col, 2);
+            retornar;
+        }
+        _lex_emite(out, T_LT, start_pos, start_lin, start_col, 1);
+        retornar;
+    }
+    se (c == '>') {
+        se (c2 == '=') { _lex_avancar(lx); _lex_emite(out, T_GE,           start_pos, start_lin, start_col, 2); retornar; }
+        se (c2 == '>') {
+            _lex_avancar(lx);
+            se (_lex_olhar(lx, 0) == '=') {
+                _lex_avancar(lx);
+                _lex_emite(out, T_RSHIFT_ASSIGN, start_pos, start_lin, start_col, 3);
+                retornar;
+            }
+            _lex_emite(out, T_RSHIFT, start_pos, start_lin, start_col, 2);
+            retornar;
+        }
+        _lex_emite(out, T_GT, start_pos, start_lin, start_col, 1);
+        retornar;
+    }
+    se (c == '&') {
+        se (c2 == '&') { _lex_avancar(lx); _lex_emite(out, T_AMP_AMP,     start_pos, start_lin, start_col, 2); retornar; }
+        se (c2 == '=') { _lex_avancar(lx); _lex_emite(out, T_AMP_ASSIGN,  start_pos, start_lin, start_col, 2); retornar; }
+        _lex_emite(out, T_AMP, start_pos, start_lin, start_col, 1);
+        retornar;
+    }
+    se (c == '|') {
+        se (c2 == '|') { _lex_avancar(lx); _lex_emite(out, T_PIPE_PIPE,   start_pos, start_lin, start_col, 2); retornar; }
+        se (c2 == '=') { _lex_avancar(lx); _lex_emite(out, T_PIPE_ASSIGN, start_pos, start_lin, start_col, 2); retornar; }
+        _lex_emite(out, T_PIPE, start_pos, start_lin, start_col, 1);
+        retornar;
+    }
+    se (c == '^') {
+        se (c2 == '=') { _lex_avancar(lx); _lex_emite(out, T_CARET_ASSIGN, start_pos, start_lin, start_col, 2); retornar; }
+        _lex_emite(out, T_CARET, start_pos, start_lin, start_col, 1);
+        retornar;
+    }
+
+    erro_fatal_pos(lx->caminho, start_lin, start_col,
+                   "caractere inesperado");
+}
