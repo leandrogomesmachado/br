@@ -442,6 +442,14 @@ static int try_gen_builtin(CG *g, const Expr *e)
         gen_runtime_call(g, e, "__br_aguardar", 1);
         return 1;
     }
+    if (strcmp(name, "obter_diretorio_atual") == 0) {
+        gen_runtime_call(g, e, "__br_obter_diretorio_atual", 2);
+        return 1;
+    }
+    if (strcmp(name, "apagar_arquivo") == 0) {
+        gen_runtime_call(g, e, "__br_apagar_arquivo", 1);
+        return 1;
+    }
     return 0;
 }
 
@@ -1050,6 +1058,34 @@ static void emit_runtime_fechar_arquivo(FILE *out)
         "    ret\n");
 }
 
+/* __br_obter_diretorio_atual(rdi=buf, rsi=tam) -> rax = tam_escrito | -errno
+ * Wrapper de SYS_getcwd (79). O kernel preenche 'buf' com o caminho do
+ * diretorio atual (incluindo terminador NUL) e retorna o tamanho usado
+ * em bytes. Em erro, retorna -errno. */
+static void emit_runtime_obter_diretorio_atual(FILE *out)
+{
+    fprintf(out,
+        "    .globl  __br_obter_diretorio_atual\n"
+        "    .type   __br_obter_diretorio_atual, @function\n"
+        "__br_obter_diretorio_atual:\n"
+        "    movl    $79, %%eax\n"               /* SYS_getcwd */
+        "    syscall\n"
+        "    ret\n");
+}
+
+/* __br_apagar_arquivo(rdi=caminho) -> rax = 0 | -errno
+ * Wrapper de SYS_unlink (87). Remove o arquivo apontado pelo caminho. */
+static void emit_runtime_apagar_arquivo(FILE *out)
+{
+    fprintf(out,
+        "    .globl  __br_apagar_arquivo\n"
+        "    .type   __br_apagar_arquivo, @function\n"
+        "__br_apagar_arquivo:\n"
+        "    movl    $87, %%eax\n"               /* SYS_unlink */
+        "    syscall\n"
+        "    ret\n");
+}
+
 /* __br_sair(rdi=codigo): nunca retorna. Usa SYS_exit_group(231) para
  * encerrar todo o processo (equivalente ao SYS_exit do _start, mas
  * tambem encerraria threads adicionais caso existissem). */
@@ -1266,6 +1302,8 @@ void codegen_emit(FILE *out, const Program *prog)
     emit_runtime_bifurcar(out);
     emit_runtime_executar(out);
     emit_runtime_aguardar(out);
+    emit_runtime_obter_diretorio_atual(out);
+    emit_runtime_apagar_arquivo(out);
     emit_runtime_argv(out);
 
     /* _start: salva argc/argv em globais, chama principal e encerra via

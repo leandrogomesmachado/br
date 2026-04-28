@@ -1,0 +1,13 @@
+// obter_diretorio_atual deve preencher o buffer com um caminho absoluto
+// (bytes contiguos, comecando com '/') e retornar tamanho > 0.
+// Como cada 'caractere' em BR ocupa 8 bytes mas getcwd escreve bytes
+// contiguos, usamos 'ler_byte' para inspecionar o conteudo real.
+// esperado: 0
+funcao inteiro principal() {
+    vazio *buf = alocar(4096);
+    inteiro n = obter_diretorio_atual(buf, 4096);
+    se (n <= 0)  { retornar 1; }
+    se (ler_byte(buf, 0) != '/') { retornar 2; }
+    liberar(buf, 4096);
+    retornar 0;
+}

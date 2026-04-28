@@ -1,0 +1,26 @@
+// Cria um arquivo via abrir_arquivo+escrever_bytes+fechar_arquivo,
+// confirma que existe (apagar_arquivo retorna 0), apaga de novo
+// (deve falhar com -ENOENT = -2). Usa constantes do header de sistema.
+// esperado: 0
+incluir "../runtime/sistema.brh";
+
+funcao inteiro principal() {
+    caractere *path = "/tmp/p4_apagar_arquivo_teste";
+
+    // Cria com escrita+criacao+truncamento, modo 0644.
+    inteiro fd = abrir_arquivo(path, ESCREVER | CRIAR | TRUNCAR, PADRAO_644);
+    se (fd < 0) { retornar 1; }
+
+    // Escreve uns bytes para garantir que existe um inode.
+    inteiro w = escrever_bytes(fd, "ola br\n", 7);
+    se (w != 7) { retornar 2; }
+    se (fechar_arquivo(fd) != 0) { retornar 3; }
+
+    // Apaga: deve retornar 0.
+    se (apagar_arquivo(path) != 0) { retornar 4; }
+
+    // Apagar de novo: deve falhar (negativo, -errno).
+    se (apagar_arquivo(path) >= 0) { retornar 5; }
+
+    retornar 0;
+}

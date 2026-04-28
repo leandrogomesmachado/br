@@ -1,0 +1,36 @@
+// Cabecalho com constantes do sistema (Linux x86-64) usadas com os
+// builtins de I/O de baixo nivel. Inclua com:
+//
+//     incluir "sistema.brh";
+//
+// Como BR ainda nao tem 'enumeracao' atrelada a tipos, os valores aqui
+// sao constantes via 'enumeracao'. Cada item vira um literal inteiro no
+// resolver, sem custo de memoria nem de carga em runtime.
+
+// Flags para abrir_arquivo (open(2), 3 primeiros bits sao mutuamente
+// exclusivos: leitura, escrita, ou leitura+escrita).
+enumeracao FlagsArquivo {
+    LER          = 0,        // O_RDONLY
+    ESCREVER     = 1,        // O_WRONLY
+    LER_E_ESCREVER = 2,      // O_RDWR
+    CRIAR        = 0o100,    // O_CREAT
+    TRUNCAR      = 0o1000,   // O_TRUNC
+    ANEXAR       = 0o2000,   // O_APPEND
+    EXCLUSIVO    = 0o200,    // O_EXCL
+    NAO_BLOQUEAR = 0o4000    // O_NONBLOCK
+}
+
+// Modo de criacao mais comum: rw-r--r-- (0644). Usado como 3o argumento
+// de abrir_arquivo quando CRIAR esta presente.
+enumeracao ModoArquivo {
+    PADRAO_644   = 0o644,
+    PADRAO_755   = 0o755,
+    SOMENTE_DONO = 0o600
+}
+
+// Descritores padrao.
+enumeracao Descritor {
+    ENTRADA_PADRAO = 0,
+    SAIDA_PADRAO   = 1,
+    ERRO_PADRAO    = 2
+}

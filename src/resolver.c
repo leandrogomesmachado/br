@@ -422,6 +422,9 @@ static const struct {
     { "bifurcar",           0, 0 },   /* fork:    pid pai/0 filho/-errno */
     { "executar",           2, 0 },   /* execve(path, argv, NULL=envp)  */
     { "aguardar",           1, 0 },   /* wait4(pid, &status, 0, NULL)   */
+    /* P4: utilitarios necessarios para a reescrita do brc em BR. */
+    { "obter_diretorio_atual", 2, 0 }, /* getcwd(buf, tam) -> tam | -errno */
+    { "apagar_arquivo",     1, 0 },   /* unlink(path)     -> 0 | -errno */
 };
 
 static int is_builtin(const char *name)
@@ -985,6 +988,28 @@ static void resolve_expr(RCtx *c, Expr *e)
                         br_fatal_at(c->path, e->as.call.args[2]->line,
                                     e->as.call.args[2]->col,
                                     "terceiro argumento de '%s' deve ser inteiro (n)", bn);
+                    }
+                } else if (strcmp(bn, "obter_diretorio_atual") == 0) {
+                    /* (buf: ponteiro, tam: inteiro) -> inteiro */
+                    BrType a0 = e->as.call.args[0]->eval_type;
+                    BrType a1 = e->as.call.args[1]->eval_type;
+                    if (!br_type_is_pointer(a0)) {
+                        br_fatal_at(c->path, e->as.call.args[0]->line,
+                                    e->as.call.args[0]->col,
+                                    "primeiro argumento de 'obter_diretorio_atual' deve ser ponteiro (buffer)");
+                    }
+                    if (!br_type_is_numeric_scalar(a1)) {
+                        br_fatal_at(c->path, e->as.call.args[1]->line,
+                                    e->as.call.args[1]->col,
+                                    "segundo argumento de 'obter_diretorio_atual' deve ser inteiro (tam)");
+                    }
+                } else if (strcmp(bn, "apagar_arquivo") == 0) {
+                    /* (path: ponteiro) -> inteiro */
+                    BrType a0 = e->as.call.args[0]->eval_type;
+                    if (!br_type_is_pointer(a0)) {
+                        br_fatal_at(c->path, e->as.call.args[0]->line,
+                                    e->as.call.args[0]->col,
+                                    "argumento de 'apagar_arquivo' deve ser ponteiro (caminho)");
                     }
                 }
                 /* numero_argumentos: nargs == 0, nada a validar. */
