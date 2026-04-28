@@ -1,0 +1,27 @@
+// Roundtrip: escrever_arquivo + ler_arquivo_inteiro.
+// Cria conteudo via Buffer, escreve em /tmp, le de volta, compara.
+// esperado: 0
+incluir "../runtime/utils.br";
+
+funcao inteiro principal() {
+    estrutura Buffer *b = buf_novo(8);
+    buf_anexar_texto(b, "linha 1\n");
+    buf_anexar_texto(b, "valor=");
+    buf_anexar_inteiro(b, 12345);
+    buf_anexar_byte(b, '\n');
+
+    caractere *path = "/tmp/p5_utils_arquivo_teste";
+    inteiro rc = escrever_arquivo(path, b->dados, b->tam);
+    se (rc != 0) { retornar 1; }
+
+    inteiro tam_lido = 0;
+    vazio *lido = ler_arquivo_inteiro(path, &tam_lido);
+    se (lido == nulo)             { retornar 2; }
+    se (tam_lido != b->tam)       { retornar 3; }
+    se (comparar_bytes(lido, b->dados, tam_lido) != 0) { retornar 4; }
+
+    liberar(lido, tam_lido);
+    buf_destruir(b);
+    apagar_arquivo(path);
+    retornar 0;
+}

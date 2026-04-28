@@ -1,0 +1,56 @@
+// Cabecalho com helpers gerais escritos em BR. A implementacao vive em
+// runtime/utils.br; quem quiser usar deve incluir o '.br' diretamente
+// (ele inclui este header internamente).
+
+// Buffer dinamico de bytes contiguos. 'dados' aponta para a regiao
+// alocada via 'alocar' (bytes contiguos, nao slots de 'caractere').
+// 'tam' = quantos bytes ja escrevi; 'cap' = bytes alocados em 'dados'.
+estrutura Buffer {
+    vazio  *dados;
+    inteiro tam;
+    inteiro cap;
+}
+
+// Cria um Buffer com capacidade inicial (>=1). Em falha, encerra o
+// processo via 'sair(1)' apos uma mensagem em stderr.
+funcao estrutura Buffer *buf_novo(inteiro cap_inicial);
+
+// Libera o Buffer e a regiao 'dados'. Aceita 'nulo' (no-op).
+funcao vazio buf_destruir(estrutura Buffer *b);
+
+// Garante 'min_cap' bytes alocados em 'b->dados', dobrando 'cap' ate
+// caber. Operacao em-loco.
+funcao vazio buf_garantir(estrutura Buffer *b, inteiro min_cap);
+
+// Anexa um byte (0..255) ao final do buffer.
+funcao vazio buf_anexar_byte(estrutura Buffer *b, inteiro v);
+
+// Anexa 'n' bytes contiguos a partir de 'src'.
+funcao vazio buf_anexar_bytes(estrutura Buffer *b, vazio *src, inteiro n);
+
+// Anexa uma string C-terminada em '\0'. O '\0' nao e' copiado.
+funcao vazio buf_anexar_texto(estrutura Buffer *b, caractere *cstr);
+
+// Anexa a representacao decimal (com sinal) de 'v' ao buffer.
+funcao vazio buf_anexar_inteiro(estrutura Buffer *b, inteiro v);
+
+// Helpers de bytes/strings.
+//
+// tamanho_da_string: comprimento de uma string C (sem o '\0').
+// comparar_bytes:    como memcmp; retorna negativo/0/positivo.
+// copiar_bytes:      como memcpy; nao trata sobreposicao.
+// comparar_string:   como strcmp; trata o '\0' como terminador.
+funcao inteiro tamanho_da_string(caractere *s);
+funcao inteiro comparar_bytes(vazio *a, vazio *b, inteiro n);
+funcao vazio   copiar_bytes(vazio *dst, vazio *src, inteiro n);
+funcao inteiro comparar_string(caractere *a, caractere *b);
+
+// Le todo o conteudo de 'path' em um buffer de bytes contiguos. Em
+// sucesso retorna o ponteiro alocado e escreve o tamanho em '*out_tam'
+// (o chamador libera com 'liberar(p, *out_tam)'). Em falha retorna nulo
+// e *out_tam recebe o codigo de erro (negativo).
+funcao vazio *ler_arquivo_inteiro(caractere *path, inteiro *out_tam);
+
+// Escreve 'n' bytes em 'path' criando/truncando o arquivo (modo 0644).
+// Retorna 0 em sucesso ou -errno.
+funcao inteiro escrever_arquivo(caractere *path, vazio *dados, inteiro n);

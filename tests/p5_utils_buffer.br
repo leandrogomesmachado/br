@@ -1,0 +1,29 @@
+// Testa Buffer dinamica do runtime/utils.br.
+// Constroi uma string "ola, mundo: -42, 0, 7" passo a passo.
+// esperado: 0
+incluir "../runtime/utils.br";
+
+funcao inteiro principal() {
+    estrutura Buffer *b = buf_novo(4);  // forca varios crescimentos
+
+    buf_anexar_texto(b, "ola, mundo: ");
+    buf_anexar_inteiro(b, -42);
+    buf_anexar_texto(b, ", ");
+    buf_anexar_inteiro(b, 0);
+    buf_anexar_texto(b, ", ");
+    buf_anexar_inteiro(b, 7);
+
+    caractere *esperado = "ola, mundo: -42, 0, 7";
+    inteiro tam_esperado = tamanho_da_string(esperado);
+
+    se (b->tam != tam_esperado) { retornar 1; }
+    se (comparar_bytes(b->dados, esperado, tam_esperado) != 0) { retornar 2; }
+
+    // Adiciona zero literal: "X" -> tam_esperado + 1
+    buf_anexar_byte(b, 'X');
+    se (b->tam != tam_esperado + 1) { retornar 3; }
+    se (ler_byte(b->dados, tam_esperado) != 'X') { retornar 4; }
+
+    buf_destruir(b);
+    retornar 0;
+}

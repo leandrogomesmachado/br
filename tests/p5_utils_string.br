@@ -1,0 +1,36 @@
+// Testa os helpers de string/bytes do runtime/utils.br.
+// esperado: 0
+incluir "../runtime/utils.br";
+
+funcao inteiro principal() {
+    // tamanho_da_string
+    se (tamanho_da_string("") != 0)         { retornar 1; }
+    se (tamanho_da_string("ola") != 3)      { retornar 2; }
+    se (tamanho_da_string("123456789") != 9){ retornar 3; }
+
+    // comparar_string
+    se (comparar_string("abc", "abc") != 0) { retornar 4; }
+    se (comparar_string("abc", "abd") >= 0) { retornar 5; }
+    se (comparar_string("abd", "abc") <= 0) { retornar 6; }
+    se (comparar_string("abc", "abcd") >= 0){ retornar 7; }
+    se (comparar_string("abcd", "abc") <= 0){ retornar 8; }
+    se (comparar_string("",    "")    != 0) { retornar 9; }
+
+    // comparar_bytes / copiar_bytes
+    vazio *a = alocar(8);
+    vazio *b = alocar(8);
+    inteiro i = 0;
+    enquanto (i < 8) {
+        escrever_byte(a, i, i + 1);    // 1,2,...,8
+        i = i + 1;
+    }
+    copiar_bytes(b, a, 8);
+    se (comparar_bytes(a, b, 8) != 0)      { retornar 10; }
+    escrever_byte(b, 4, 99);
+    se (comparar_bytes(a, b, 8) == 0)      { retornar 11; }
+    se (comparar_bytes(a, b, 4) != 0)      { retornar 12; }   // prefixo igual
+
+    liberar(a, 8);
+    liberar(b, 8);
+    retornar 0;
+}
